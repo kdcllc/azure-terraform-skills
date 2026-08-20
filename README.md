@@ -37,6 +37,15 @@ Each skill folder is self-contained (`SKILL.md` plus `templates/`, `scripts/`, `
 
 Naming: `{resource-type}-{organization_name}-{resource}-{environment}` (example: `rg-acme-webapp-dev`). Provider file is **`providers.tf`**. Stacks use an empty `backend "azurerm" {}`; pipelines inject state settings.
 
+Microsoft [Azure Developer CLI](https://learn.microsoft.com/azure/developer/azure-developer-cli/use-terraform-for-azd) templates and [azure-skills](https://github.com/microsoft/azure-skills) use `infra/` (often with `azd up`). This pack does **not**. Do not rewrite an existing `infra/` tree into `modules/` / `resources/environments/` unless the operator asks. Rejected aliases: `infra/resources/`, flat `resources/<resource>/`.
+
+| | Microsoft `infra/` | This pack |
+| --- | --- | --- |
+| Who it is for | App repo next to `src/`, often `azd` | Dedicated Terraform repo / module library |
+| Modules | `infra/modules/` | `modules/` at repo root |
+| Envs | tfvars beside one root | `resources/environments/<env>/<resource>/` (own state key) |
+| Deploy | `azd up` is the default in Microsoft skills | `az` + `terraform plan`; apply is human/gated CI |
+
 ## Scripts (safety)
 
 `skills/terraform-azure/scripts/` run **Azure CLI (`az`)** only:
