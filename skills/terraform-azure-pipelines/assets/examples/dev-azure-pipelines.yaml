@@ -1,0 +1,20 @@
+# Dev environment pipeline — extends shared template (Terraform 1.15.8).
+# Fill in service connection and state storage parameters at queue time (no hardcoded account names).
+trigger: none
+
+parameters:
+- name: resource
+  type: string
+
+- name: workingDirectory
+  type: string
+
+extends:
+  template: /pipelines/azure_dev_ops/shared/azure-pipelines.yaml
+  parameters:
+    backendAzureRmResourceGroupName: # Resource group where the storage account is located
+    backendAzureRmKey: 'tfstate.${{ parameters.resource }}.dev'
+    backendAzureRmStorageAccountName: # Storage account name
+    backendServiceArm: # Service connection name
+    workingDirectory: ${{ parameters.workingDirectory }}
+    tfvarsFile: dev.tfvars

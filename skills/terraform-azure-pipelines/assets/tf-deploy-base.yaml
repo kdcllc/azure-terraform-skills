@@ -1,0 +1,202 @@
+name: Terraform Deploy Base Module
+
+on:
+  workflow_call:
+    inputs:
+      working_directory:
+        required: true
+        type: string
+      tfvars_file:
+        required: true
+        type: string
+      terraform_action:
+        required: true
+        type: string
+      backend_state_key:
+        required: false
+        type: string
+      environment:
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  TF_VERSION: '1.15.8'
+  ARM_USE_OIDC: true
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  # Configure these as repository or environment variables (not hardcoded in workflows):
+  # TFSTATE_RESOURCE_GROUP, TFSTATE_STORAGE_ACCOUNT, TFSTATE_CONTAINER (default: tfstate)
+
+jobs:
+  terraform:
+    name: 'Terraform ${{ inputs.terraform_action }}'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
+    
+    outputs:
+      tfplan_exit_code: ${{ steps.plan.outputs.exit_code }}
+      
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Validate Inputs
+        run: |
+          echo "🔍 Validating inputs..."
+          echo "Working Directory: ${{ inputs.working_directory }}"
+          echo "TFVars File: ${{ inputs.tfvars_file }}"
+          echo "Terraform Action: ${{ inputs.terraform_action }}"
+          
+          # Check if working directory exists
+          if [ ! -d "${{ github.workspace }}/${{ inputs.working_directory }}" ]; then
+            echo "❌ Working directory does not exist: ${{ inputs.working_directory }}"
+            exit 1
+          fi
+          
+          # Check if tfvars file exists
+          if [ ! -f "${{ inputs.tfvars_file }}" ]; then
+            echo "❌ TFVars file does not exist: ${{ inputs.tfvars_file }}"
+            exit 1
+          fi
+          
+          echo "✅ All inputs validated successfully"
+
+      - name: Terraform Format Check
+        run: |
+          echo "🎨 Checking Terraform formatting..."
+          terraform fmt -check -recursive
+        continue-on-error: true
+
+      - name: Terraform Init
+        run: |
+          echo "🏗️ Initializing Terraform..."
+          
+          if [ -n "${{ inputs.backend_state_key }}" ]; then
+            echo "📝 Building backend configuration from repository variables and inputs"
+            RESOURCE_GROUP="${{ vars.TFSTATE_RESOURCE_GROUP }}"
+            STORAGE_ACCOUNT="${{ vars.TFSTATE_STORAGE_ACCOUNT }}"
+            CONTAINER="${{ vars.TFSTATE_CONTAINER }}"
+            if [ -z "${CONTAINER}" ]; then
+              CONTAINER="tfstate"
+            fi
+            STATE_KEY="${{ inputs.backend_state_key }}"
+            
+            if [ -z "${RESOURCE_GROUP}" ] || [ -z "${STORAGE_ACCOUNT}" ]; then
+              echo "❌ TFSTATE_RESOURCE_GROUP and TFSTATE_STORAGE_ACCOUNT must be set as repository variables"
+              exit 1
+            fi
+            
+            echo "Backend configuration:"
+            echo "  Resource Group: ${RESOURCE_GROUP}"
+            echo "  Storage Account: ${STORAGE_ACCOUNT}"
+            echo "  Container: ${CONTAINER}"
+            echo "  State Key: ${STATE_KEY}"
+            echo "  Auth: OIDC + Entra ID (use_oidc, use_azuread_auth)"
+            
+            terraform init \
+              -backend-config="resource_group_name=${RESOURCE_GROUP}" \
+              -backend-config="storage_account_name=${STORAGE_ACCOUNT}" \
+              -backend-config="container_name=${CONTAINER}" \
+              -backend-config="key=${STATE_KEY}" \
+              -backend-config="use_oidc=true" \
+              -backend-config="use_azuread_auth=true"
+          else
+            echo "📝 Initializing without backend configuration (offline validate)"
+            terraform init -backend=false
+          fi
+
+      - name: Terraform Validate
+        run: |
+          echo "✅ Validating Terraform configuration..."
+          terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          echo "📋 Creating Terraform plan..."
+          
+          if [ "${{ inputs.terraform_action }}" = "destroy" ]; then
+            terraform plan -destroy -var-file="${{ inputs.tfvars_file }}" -out=tfplan
+          else
+            terraform plan -var-file="${{ inputs.tfvars_file }}" -out=tfplan
+          fi
+          
+          echo "✅ Plan created successfully"
+
+      - name: Terraform Show Plan
+        run: |
+          echo "📊 Displaying Terraform plan..."
+          terraform show -no-color tfplan
+
+      - name: Terraform Apply
+        if: inputs.terraform_action == 'apply'
+        run: |
+          echo "🚀 Applying Terraform changes..."
+          terraform apply -auto-approve tfplan
+
+      - name: Terraform Destroy
+        if: inputs.terraform_action == 'destroy'
+        run: |
+          echo "🗑️ Destroying Terraform resources..."
+          terraform apply -auto-approve tfplan
+
+      - name: Terraform Output
+        if: inputs.terraform_action == 'apply'
+        run: |
+          echo "📤 Displaying Terraform outputs..."
+          terraform output
+
+      - name: Upload Plan Artifact
+        if: inputs.terraform_action == 'plan'
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-${{ github.run_number }}
+          path: ${{ inputs.working_directory }}/tfplan
+          retention-days: 30
+
+      - name: Job Summary
+        if: always()
+        run: |
+          echo "## Terraform Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Working Directory | \`${{ inputs.working_directory }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| TFVars File | \`${{ inputs.tfvars_file }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Action | \`${{ inputs.terraform_action }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Plan Exit Code | \`${{ steps.plan.outputs.exit_code }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          case "${{ steps.plan.outputs.exit_code }}" in
+            "0")
+              echo "✅ **Result**: No changes detected" >> $GITHUB_STEP_SUMMARY
+              ;;
+            "1")
+              echo "❌ **Result**: Plan failed" >> $GITHUB_STEP_SUMMARY
+              ;;
+            "2")
+              echo "📝 **Result**: Changes detected and ready for apply" >> $GITHUB_STEP_SUMMARY
+              ;;
+            *)
+              echo "ℹ️ **Result**: Plan step was skipped" >> $GITHUB_STEP_SUMMARY
+              ;;
+          esac

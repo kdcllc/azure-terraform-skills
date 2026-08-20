@@ -1,0 +1,9 @@
+module "resource_group" {
+  source = "../../../modules/resource_group"
+
+  organization_name = var.organization_name
+  resource          = var.resource
+  environment       = var.environment
+  location          = var.location
+  tags              = var.tags
+}

@@ -1,0 +1,64 @@
+name: Terraform Stack
+
+on:
+  workflow_call:
+    inputs:
+      working_directory:
+        required: true
+        type: string
+      tfvars_file:
+        required: true
+        type: string
+      terraform_action:
+        required: true
+        type: string
+      environment:
+        required: true
+        type: string
+      backend_state_key:
+        required: false
+        type: string
+        default: ''
+  workflow_dispatch:
+    inputs:
+      working_directory:
+        description: 'Stack path (e.g. resources/environments/dev/webapp)'
+        required: true
+        type: string
+      tfvars_file:
+        description: 'TFVars file relative to working directory'
+        required: true
+        type: string
+        default: dev.tfvars
+      terraform_action:
+        description: 'Terraform action'
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+        default: plan
+      environment:
+        description: 'Environment name (dev, prod, …)'
+        required: true
+        type: string
+      backend_state_key:
+        description: 'State blob key (e.g. tfstate.webapp.dev); optional'
+        required: false
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  terraform:
+    uses: ./.github/workflows/tf-deploy-base.yaml
+    with:
+      working_directory: ${{ inputs.working_directory || github.event.inputs.working_directory }}
+      tfvars_file: ${{ inputs.tfvars_file || github.event.inputs.tfvars_file }}
+      terraform_action: ${{ inputs.terraform_action || github.event.inputs.terraform_action }}
+      environment: ${{ inputs.environment || github.event.inputs.environment }}
+      backend_state_key: ${{ inputs.backend_state_key || github.event.inputs.backend_state_key || '' }}
+    secrets: inherit

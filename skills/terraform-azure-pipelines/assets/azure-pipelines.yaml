@@ -1,0 +1,92 @@
+# Shared Terraform pipeline: init → validate → plan → apply.
+# Production: add an environment approval gate (or manual validation) before the Apply step.
+# Backend auth: service connection (OIDC/workload identity) plus Entra backend flags at init.
+parameters:
+- name: backendServiceArm
+  type: string
+  displayName: 'Azure DevOps Service connections to Azure Cloud, this account should be set to contributor'  
+
+- name: backendAzureRmKey
+  type: string
+  displayName: 'AzureRmKey: Terraform state file name i.e. tfstate.parameters.resource.qa'
+
+- name: backendAzureRmResourceGroupName
+  type: string
+  displayName: 'Resource group'
+
+- name: backendAzureRmStorageAccountName
+  type: string
+  displayName: 'Azure Blob Storage Name'
+
+- name: backendAzureRmContainerName
+  type: string
+  displayName: 'AzureRmContainerName: Azure Blob Storage Container Name i.e. tfstate'
+  default: 'tfstate'
+  
+- name: workingDirectory
+  type: string
+  displayName: 'Working Directory'
+  default: '.'
+
+- name: tfvarsFile
+  type: string
+  displayName: 'Terraform Variables File'
+  default: 'terraform.tfvars'
+
+stages:
+- stage: TerraformPipeline
+  jobs:
+  - job: TerraformJob
+    displayName: Deploy Infrastructure With Terraform
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+
+    - task: TerraformInstaller@1
+      displayName: 'Install Terraform'
+      inputs:
+        terraformVersion: '1.15.8'
+
+    - task: TerraformTaskV4@4
+      displayName: 'Terraform Init'
+      inputs:
+        command: 'init'
+        provider: 'azurerm'
+        backendServiceArm: ${{ parameters.backendServiceArm }}
+        backendAzureRmResourceGroupName: ${{ parameters.backendAzureRmResourceGroupName }}
+        backendAzureRmStorageAccountName: ${{ parameters.backendAzureRmStorageAccountName }}
+        backendAzureRmContainerName: ${{ parameters.backendAzureRmContainerName }}
+        backendAzureRmKey: ${{ parameters.backendAzureRmKey }}
+        workingDirectory: ${{ parameters.workingDirectory }}
+        # Entra ID backend auth (no storage account keys); service connection supplies OIDC.
+        commandOptions: '-backend-config=use_oidc=true -backend-config=use_azuread_auth=true'
+      
+
+    - task: TerraformTaskV4@4
+      displayName: 'Terraform Validate'
+      inputs:
+        command: 'validate'
+        environmentServiceNameAzureRM: ${{ parameters.backendServiceArm }}
+        workingDirectory: ${{ parameters.workingDirectory }}
+      
+
+    - task: TerraformTaskV4@4
+      name: terraformPlan
+      displayName: 'Create Terraform Plan'
+      inputs:
+        provider: 'azurerm'
+        command: 'plan'
+        environmentServiceNameAzureRM: ${{ parameters.backendServiceArm }}
+        workingDirectory: ${{ parameters.workingDirectory }}
+        commandOptions: '-var-file=${{ parameters.tfvarsFile }}'
+
+    # Production deployments should require manual approval on this job or stage before apply runs.
+    - task: TerraformTaskV4@4
+      name: terraformApply
+      displayName: 'Apply Terraform Plan'
+      inputs:
+        provider: 'azurerm'
+        command: 'apply'
+        environmentServiceNameAzureRM: ${{ parameters.backendServiceArm }}
+        workingDirectory: ${{ parameters.workingDirectory }}
+        commandOptions: '-var-file=${{ parameters.tfvarsFile }}'

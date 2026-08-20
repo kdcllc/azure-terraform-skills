@@ -1,0 +1,76 @@
+stages:
+  - validate
+  - plan
+  - apply
+
+variables:
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  # Stack root: resources/environments/<env>/<resource>/
+  # Optional region segment: resources/environments/<env>/<region>/<resource>/
+  TF_ROOT: "resources/environments/dev/container_apps"
+  # Backend (set as CI/CD variables — never hardcode account names or keys):
+  # TFSTATE_RESOURCE_GROUP, TFSTATE_STORAGE_ACCOUNT, TFSTATE_CONTAINER, TFSTATE_KEY
+
+.default_terraform:
+  image: hashicorp/terraform:1.15.8
+  before_script:
+    - cd "$TF_ROOT"
+
+terraform_validate:
+  extends: .default_terraform
+  stage: validate
+  script:
+    - terraform fmt -check -recursive
+    - terraform init \
+      -backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}" \
+      -backend-config="storage_account_name=${TFSTATE_STORAGE_ACCOUNT}" \
+      -backend-config="container_name=${TFSTATE_CONTAINER}" \
+      -backend-config="key=${TFSTATE_KEY}" \
+      -backend-config="use_oidc=true" \
+      -backend-config="use_azuread_auth=true"
+    - terraform validate
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+
+terraform_plan:
+  extends: .default_terraform
+  stage: plan
+  script:
+    - terraform init \
+      -backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}" \
+      -backend-config="storage_account_name=${TFSTATE_STORAGE_ACCOUNT}" \
+      -backend-config="container_name=${TFSTATE_CONTAINER}" \
+      -backend-config="key=${TFSTATE_KEY}" \
+      -backend-config="use_oidc=true" \
+      -backend-config="use_azuread_auth=true"
+    - terraform plan -out=tfplan
+    - terraform show -no-color tfplan > tfplan.txt
+  artifacts:
+    paths:
+      - $TF_ROOT/tfplan
+      - $TF_ROOT/tfplan.txt
+    expire_in: 1 week
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+
+terraform_apply:
+  extends: .default_terraform
+  stage: apply
+  script:
+    - terraform init \
+      -backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}" \
+      -backend-config="storage_account_name=${TFSTATE_STORAGE_ACCOUNT}" \
+      -backend-config="container_name=${TFSTATE_CONTAINER}" \
+      -backend-config="key=${TFSTATE_KEY}" \
+      -backend-config="use_oidc=true" \
+      -backend-config="use_azuread_auth=true"
+    - terraform apply -auto-approve tfplan
+  dependencies:
+    - terraform_plan
+  when: manual
+  allow_failure: false
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
