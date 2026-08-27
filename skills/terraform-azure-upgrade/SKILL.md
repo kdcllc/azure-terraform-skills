@@ -76,13 +76,13 @@ For each agreed path:
 
 ### 3. Stacks (optional)
 
-If the operator included a stack under `resources/environments/`:
+If the operator included a stack under `resources/`:
 
 - Empty `backend "azurerm" {}` stays
 - Root `provider "azurerm"` **must** set `resource_provider_registrations` (`"legacy"` default; `"none"` only when RPs are pre-registered)
 - **Forbidden:** `skip_provider_registration`
 
-Do not bump stack `location` / folder layout in this skill.
+Do not bump stack `location` or rearrange folder layout in this skill. If you encounter a superseded `resources/environments/<env>/<resource>/` tree or a mega-stack mixing several domains, **report it and stop** — restructuring is `terraform-azure` menu 2, not a schema upgrade.
 
 ### 4. Validate (tier 1 only)
 

@@ -16,6 +16,9 @@ REQUIRED_PATHS=(
   skills/terraform-azure/references/azure-connections.md
   skills/terraform-azure/templates/module/providers.tf.tmpl
   skills/terraform-azure/templates/stack/backend.tf.tmpl
+  skills/terraform-azure/templates/stack/main.tf.tmpl
+  skills/terraform-azure/templates/stack/data.tf.tmpl
+  skills/terraform-azure/templates/stack-decision.md
   skills/terraform-azure/scripts/bootstrap-tfstate.sh
   skills/terraform-azure/scripts/bootstrap-tfstate.ps1
   skills/terraform-azure/scripts/create-azure-oidc.sh
@@ -145,3 +148,6 @@ for rel in "${SKILL_PATHS[@]}"; do
 done
 
 check_banned_strings
+
+# Stack-decomposition contract: one domain per stack, data-block composition.
+bash "${PACK_ROOT}/scripts/check-stack-conventions.sh" "${PACK_ROOT}"

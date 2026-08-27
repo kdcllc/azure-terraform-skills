@@ -6,11 +6,15 @@ stages:
 variables:
   TF_IN_AUTOMATION: "true"
   TF_INPUT: "false"
-  # Stack root: resources/environments/<env>/<resource>/
-  # Optional region segment: resources/environments/<env>/<region>/<resource>/
-  TF_ROOT: "resources/environments/dev/container_apps"
+  # Stack root: resources/<domain>/ — one domain per stack, one pipeline per domain.
+  # The .tf is written once; TFVARS_FILE selects the environment.
+  TF_ROOT: "resources/container-apps"
+  # Per-environment tfvars, relative to TF_ROOT: envs/<env>.tfvars
+  # Optional region segment in the filename: envs/<env>.<region>.tfvars
+  TFVARS_FILE: "envs/dev.tfvars"
   # Backend (set as CI/CD variables — never hardcode account names or keys):
   # TFSTATE_RESOURCE_GROUP, TFSTATE_STORAGE_ACCOUNT, TFSTATE_CONTAINER, TFSTATE_KEY
+  # State key shape: tfstate.{resource}.{domain}.{environment}
 
 .default_terraform:
   image: hashicorp/terraform:1.15.8
@@ -45,7 +49,7 @@ terraform_plan:
       -backend-config="key=${TFSTATE_KEY}" \
       -backend-config="use_oidc=true" \
       -backend-config="use_azuread_auth=true"
-    - terraform plan -out=tfplan
+    - terraform plan -var-file="${TFVARS_FILE}" -out=tfplan
     - terraform show -no-color tfplan > tfplan.txt
   artifacts:
     paths:

@@ -21,7 +21,7 @@ Load these only when needed (do not paste them into this playbook):
 - [../terraform-azure/references/ai-conventions.md](../terraform-azure/references/ai-conventions.md) — layout freeze (`providers.tf`, naming, env-stack paths).
 - [../terraform-azure/templates/module/](../terraform-azure/templates/module/) — copy these templates into the consumer module folder.
 
-Environment stacks (`resources/environments/<env>/<resource>/`) are a different workflow — use the sibling `terraform-azure` skill (menu 2).
+Domain stacks (`resources/<domain>/`) are a different workflow — use the sibling `terraform-azure` skill (menu 2). That skill decomposes a request into one stack per domain; this one never authors stacks.
 
 ## When to use
 
@@ -44,7 +44,9 @@ If those roles are unavailable, use the HashiCorp Registry azurerm docs and Micr
 
 ### 1. Reuse first
 
-List `modules/` in the consumer repo. If a sibling already covers the resource, **update that module**. Compose with `source =` relative paths (for example `../../modules/key_vault`). Never re-implement a resource that already has a module.
+List `modules/` in the consumer repo. If a sibling already covers the resource, **update that module**. Never re-implement a resource that already has a module.
+
+**Composition scope:** a module may consume another module with a relative `source` only when both belong to the **same domain** (see the domain catalog in [../terraform-azure/references/ai-conventions.md](../terraform-azure/references/ai-conventions.md)). Never build a module that spans domains so a stack can call one block — that recreates the mega-stack this pack forbids. Across domains, the consuming **stack** uses an azurerm `data` block instead.
 
 ### 2. Name the folder
 
@@ -61,7 +63,7 @@ Copy from [../terraform-azure/templates/module/](../terraform-azure/templates/mo
 | `output.tf` **or** `outputs.tf` | Outputs — match siblings |
 | `providers.tf` | Terraform + provider versions (**never** `provider.tf`) |
 
-Reusable modules do **not** need `backend.tf`. That file belongs to environment stacks.
+Reusable modules do **not** need `backend.tf`. That file belongs to domain stacks.
 
 Templates also live in [reference.md](reference.md).
 
@@ -117,6 +119,7 @@ Match that constraint unless the target repository already uses a stricter floor
 - Mark secret inputs `sensitive = true`.
 - Prefer Microsoft abbreviations as output names (`kv`, `rg`, `ca`) when siblings do; otherwise match the sibling’s output style.
 - Place `source` first in any `module` block that composes another library module.
+- Expose the resource **name** as an output, not just the ID. Stacks in other domains look resources up by name in `data` blocks, and a name output keeps same-domain wiring consistent with that.
 
 ### 8. Format and validate (never apply)
 

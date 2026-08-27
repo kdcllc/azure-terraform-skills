@@ -23,7 +23,7 @@ For extra **file-shape** patterns only (not version pins), read sibling skills o
 
 After writing HCL, run **tier 1** (`terraform fmt -check`, `terraform init -backend=false`, `terraform validate`) in the module or stack directory. Never run a full-library sweep from this skill.
 
-This skill ships templates under [templates/](templates/) and helper scripts under [scripts/](scripts/). Paths below are **relative to this skill folder** unless they name a path in the **consumer** repository (`modules/`, `resources/environments/`, `.github/workflows/`, `pipelines/`).
+This skill ships templates under [templates/](templates/) and helper scripts under [scripts/](scripts/). Paths below are **relative to this skill folder** unless they name a path in the **consumer** repository (`modules/`, `resources/`, `.github/workflows/`, `pipelines/`).
 
 ## Step 0 — Ask which menu item
 
@@ -32,7 +32,7 @@ This skill ships templates under [templates/](templates/) and helper scripts und
 | # | Menu item | Delivers |
 | --- | --- | --- |
 | **1** | **New module (interface)** | Reusable library module under `modules/<name>/` |
-| **2** | **New stack (class)** | Environment root under `resources/environments/...` |
+| **2** | **New stack (class)** | One root module **per domain** under `resources/<domain>/` |
 | **3** | **New pipeline** | CI for fmt / validate / plan (ADO + GHA + GitLab) |
 | **4** | **Bootstrap state storage** | One-shot remote state RG + storage + container |
 | **5** | **Create Azure connections** | OIDC / service connections for CI |
@@ -49,7 +49,10 @@ This skill and agents using it **must not**:
 - Run **`terraform apply`** or **`terraform destroy`** — stop at tier 2 (plan). Apply and destroy are for humans or gated CI only.
 - Reference host-specific editor extension tool IDs — name documentation tools by role only.
 - Inline a second bootstrap implementation — use the checked-in scripts (menu items 4 and 5).
-- Create a populated `resources/environments/` tree during skill authoring; templates only unless the operator chose menu item 2 and confirmed paths.
+- Create a populated `resources/` tree during skill authoring; templates only unless the operator chose menu item 2 and confirmed paths.
+- Author a **mega-stack** — one `main.tf` holding modules from more than one domain-catalog row. One domain per stack, always.
+- Wire one stack to another with `terraform_remote_state`, a cross-stack module output, or an upstream ID hardcoded in tfvars. Cross-stack reads are azurerm `data` blocks only.
+- Emit the superseded `resources/environments/<env>/<resource>/` layout, or duplicate `.tf` files per environment.
 - Use filename **`provider.tf`** — this library standard is **`providers.tf`** only.
 
 ---
@@ -81,7 +84,7 @@ Copy and adapt from [templates/module/](templates/module/):
 - **`organization_name`** variable on every library module.
 - **No** `provider.tf` filename.
 - **No** `backend.tf` on library modules.
-- **No** `resource_provider_registrations` on library modules — that belongs on environment stacks only.
+- **No** `resource_provider_registrations` on library modules — that belongs on domain stacks only.
 
 ### Naming
 
@@ -106,87 +109,134 @@ cd modules/<name> && terraform init -backend=false && terraform validate
 
 ## Menu 2 — New stack (class)
 
-**Target (consumer repo):** environment-specific root module consuming library modules via relative `source`.
+**Target (consumer repo):** one root module **per domain**, consuming library modules via relative `source`, written once and reused across environments.
+
+### Rule 0 — decompose before you write
+
+An operator asking for "a resource group, VNet, container apps, ACR, key vault, storage and Log Analytics" is asking for **seven stacks, not one file**. Before creating anything:
+
+1. Map every requested Azure resource onto exactly one row of the **domain catalog** below.
+2. Create one stack folder per distinct domain.
+3. Wire lower-tier domains into higher-tier ones with `data` blocks (Rule 2).
+
+**Never** emit a single `main.tf` holding modules from more than one domain. If you catch yourself adding a second domain's module to an existing stack, stop and create that domain's own folder instead.
+
+#### Domain catalog
+
+Tier is dependency order — a stack may read from **lower** tiers only.
+
+| Tier | Domain folder | Typical Azure resources |
+| --- | --- | --- |
+| 1 | `resource-group` | resource group |
+| 2 | `networking` | virtual network, subnets, NSGs, private DNS zones, private endpoints |
+| 2 | `identity` | user-assigned managed identities, role assignments |
+| 2 | `observability` | Log Analytics workspace, Application Insights |
+| 3 | `key-vaults` | key vault, key vault secrets |
+| 3 | `container-registry` | container registry |
+| 3 | `storage` | storage accounts, blob containers |
+| 3 | `databases` | SQL, PostgreSQL, Cosmos DB |
+| 4 | `container-apps` | Container Apps environment, container apps |
+| 4 | `app-services` | service plans, web apps, function apps |
+
+Operators may add rows. Do **not** invent a folder name when a row already covers the resource, and do **not** merge two rows into one stack.
+
+Worked example — the request above becomes:
+
+```
+resources/resource-group/       (tier 1)
+resources/networking/           (tier 2)
+resources/observability/        (tier 2)
+resources/key-vaults/           (tier 3)
+resources/container-registry/   (tier 3)
+resources/storage/              (tier 3)
+resources/container-apps/       (tier 4)
+```
+
+### Rule 1 — directory layout
+
+`.tf` is written **once per domain**; only tfvars vary per environment.
+
+```
+resources/<domain>/
+  main.tf            # modules for THIS domain only
+  data.tf            # lookups of other domains (omit for tier 1)
+  variables.tf
+  providers.tf
+  backend.tf
+  stack-decision.md
+  envs/
+    dev.tfvars
+    prod.tfvars
+```
+
+Working directory is `resources/<domain>/` for every environment.
+
+**Rejected:** `resources/environments/<env>/<resource>/` (superseded), `infra/resources/`, and any layout that duplicates `.tf` per environment.
+
+**Module `source` (frozen — one row):** `source = "../../modules/<name>"`.
+
+### Rule 2 — cross-stack reads are data blocks only
+
+A stack reads another domain through an azurerm `data` block. Because naming is deterministic and `var.resource` is identical across a workload's stacks, the downstream stack **reconstructs** the upstream name from variables it already has:
+
+```hcl
+# resources/key-vaults/data.tf
+data "azurerm_resource_group" "this" {
+  name = "rg-${var.organization_name}-${var.resource}-${var.environment}"
+}
+```
+
+**Forbidden:** `terraform_remote_state`, cross-stack module outputs, and upstream IDs hardcoded into tfvars. If azurerm publishes no data source for a type, its dependents belong in the **same** stack as that resource — that is the only merge this skill allows.
+
+Stack `outputs.tf` is optional, for humans and CI logs only — never a cross-stack contract.
 
 ### Ask at create time (required)
 
 Before writing files, ask:
 
-1. **Environment** — e.g. `dev`, `test`, `prod` (folder segment `<env>`).
-2. **Azure region (location)** — e.g. `eastus`, `westeurope`.
-3. **Subscription** — current `az account show` subscription, or another subscription ID the stack will target.
-4. **Region in layout** — whether `<region>` appears in the **folder path**, in the **resource name**, in the **state key**, both, or neither.
+1. **Domains** — which resources are in scope, so they can be mapped to catalog rows.
+2. **Environments** — e.g. `dev`, `test`, `prod` (one `envs/<env>.tfvars` file each).
+3. **Azure region (location)** — e.g. `eastus`, `westeurope`.
+4. **Subscription** — current `az account show` subscription, or another subscription ID.
+5. **Region in layout** — whether `<region>` appears in the **tfvars filename**, the **resource name**, the **state key**, several, or none.
 
-**location is always** a stack variable in `variables.tf` and **location is always** passed into every `module` block, even when region is neither in the folder path nor in the resource name. Modules never infer region from path alone.
+**location is always** a stack variable in `variables.tf` and **is always** passed into every `module` block, even when region appears nowhere else. Modules never infer region from path alone.
 
-### Directory layout
+Region-in-path affects only the tfvars filename (`resources/<domain>/envs/<env>.<region>.tfvars`). Module `source` depth never changes.
 
-**Default (canonical):**
+### Naming
+
+`var.resource` is the **workload** (`webapp`), identical in every domain stack for that workload. The domain lives in the folder and state key, never in the resource name:
+
+- Correct: `kv-acme-webapp-dev`, `vnet-acme-webapp-dev`
+- Wrong: `kv-acme-key-vaults-dev`
+
+### State keys
 
 ```
-resources/environments/<env>/<resource>/
+tfstate.{resource}.{domain}.{environment}
 ```
 
-**Optional region folder** (only when operator chose region-in-path):
-
-```
-resources/environments/<env>/<region>/<resource>/
-```
-
-**Rejected:** flat `resources/<resource>/` — do not create or document that layout.
-
-Create the directory tree when adding a real stack; this skill ships templates only.
-
-### Relative module `source` (frozen)
-
-| Stack path | Module `source` |
-| --- | --- |
-| `resources/environments/<env>/<resource>/` | `source = "../../../modules/<name>"` |
-| `resources/environments/<env>/<region>/<resource>/` | `source = "../../../../modules/<name>"` |
-
-Example (default depth):
-
-```hcl
-module "resource_group" {
-  source = "../../../modules/resource_group"
-
-  organization_name = var.organization_name
-  resource          = var.resource
-  environment       = var.environment
-  location          = var.location
-  tags              = var.tags
-}
-```
+Example: `tfstate.webapp.networking.dev`. Append `.{region}` when region-in-key is chosen. One state file per domain per environment.
 
 ### Stack files (from this skill's templates)
 
-Copy and adapt from [templates/stack/](templates/stack/):
+Copy and adapt from [templates/stack/](templates/stack/), once per domain:
 
 | File | Template |
 | --- | --- |
-| `main.tf` | `templates/stack/main.tf.tmpl` — adjust `source` depth per table above |
+| `main.tf` | `templates/stack/main.tf.tmpl` — one domain's modules only |
+| `data.tf` | `templates/stack/data.tf.tmpl` — omit for tier 1 (`resource-group`) |
 | `variables.tf` | `templates/stack/variables.tf.tmpl` — **must** declare `location` |
 | `providers.tf` | `templates/stack/providers.tf.tmpl` — sets `resource_provider_registrations = "legacy"` |
 | `backend.tf` | `templates/stack/backend.tf.tmpl` — empty `backend "azurerm" {}` |
-| `<env>.tfvars` | `templates/stack/dev.tfvars.tmpl` — e.g. `dev.tfvars` |
+| `envs/<env>.tfvars` | `templates/stack/dev.tfvars.tmpl` — one per environment, all in `envs/` |
 
 ### Stack decision record
 
-Write **`stack-decision.md`** beside the stack using [templates/stack-decision.md](templates/stack-decision.md). Required keys:
+Write **`stack-decision.md`** in each domain stack using [templates/stack-decision.md](templates/stack-decision.md). Required keys: `domain`, `resource`, `environments`, `region`, `location`, `subscription_id`, `region_in_path`, `region_in_name`, `region_in_key`, `working_directory`, `tfvars`, `state_keys`, `module_sources`, `upstream_domains`.
 
-| Key | Description |
-| --- | --- |
-| `env` | Environment segment |
-| `region` | Azure region slug if used in path/name/key; empty if not |
-| `location` | Azure location string (always used as stack variable) |
-| `subscription_id` | Placeholder `00000000-0000-0000-0000-000000000000` — not a real secret |
-| `region_in_path` | `true` / `false` |
-| `region_in_name` | `true` / `false` |
-| `state_key` | e.g. `tfstate.webapp.dev` or `tfstate.webapp.dev.eastus` |
-| `working_directory` | Repo-relative stack root |
-| `module_source` | e.g. `../../../modules/resource_group` |
-
-Default state key: `tfstate.{resource}.{environment}`. Append `.{region}` when region-in-key is chosen.
+`domain` must be a single catalog row — two domains in one record means the stack needs splitting. Every `upstream_domains` entry must have a matching `data` block in `data.tf`.
 
 Do **not** store storage account keys, SAS tokens, or client secrets in this file.
 
@@ -196,26 +246,28 @@ Stack `providers.tf` **must** set `resource_provider_registrations` explicitly (
 
 ### Validation
 
-Tier 1 (no Azure credentials):
+Run per domain stack. Tier 1 (no Azure credentials):
 
 ```bash
-terraform fmt -check -diff resources/environments/<env>/<resource>
-cd resources/environments/<env>/<resource> && terraform init -backend=false && terraform validate
+terraform fmt -check -diff resources/<domain>
+cd resources/<domain> && terraform init -backend=false && terraform validate
 ```
 
 Tier 2 (plan only — requires `az login`):
 
 ```bash
-cd <working_directory>
+cd resources/<domain>
 terraform init \
   -backend-config=resource_group_name=<RG> \
   -backend-config=storage_account_name=<SA> \
   -backend-config=container_name=tfstate \
-  -backend-config=key=<state_key from stack-decision.md> \
+  -backend-config=key=<state_key for this domain+env> \
   -backend-config=use_oidc=true \
   -backend-config=use_azuread_auth=true
-terraform plan -var-file=<env>.tfvars
+terraform plan -var-file=envs/<env>.tfvars
 ```
+
+Plan tier-1 domains before higher tiers — a `data` block fails until the upstream stack has been applied by a human or gated CI. A downstream plan that fails on a missing data source is expected, not a defect; report it and stop.
 
 Stop at plan. Do not apply or destroy.
 
@@ -225,11 +277,15 @@ Stop at plan. Do not apply or destroy.
 
 Read [../terraform-azure-pipelines/SKILL.md](../terraform-azure-pipelines/SKILL.md) and **copy assets** from that sibling skill into the consumer repo. Do not invent YAML; do not copy older Terraform pins.
 
-Wire CI for an existing stack. Read values from the stack's **`stack-decision.md`**:
+Wire CI **per domain stack** — each domain gets its own pipeline (or its own caller job) because each has its own working directory and its own state key. Do not wire seven domains into one job.
 
-- `working_directory` → pipeline working directory
-- `state_key` → backend blob key
-- `<env>.tfvars` filename → tfvars parameter
+Read values from that stack's **`stack-decision.md`**:
+
+- `working_directory` → pipeline working directory (`resources/<domain>`)
+- `state_keys.<env>` → backend blob key
+- `tfvars.<env>` → tfvars parameter (`envs/<env>.tfvars`)
+
+Trigger paths should watch `resources/<domain>/**` so an unrelated domain's change does not run every plan.
 
 **Terraform CLI pin:** **1.15.8**.
 
@@ -246,23 +302,23 @@ Copy `../terraform-azure-pipelines/assets/tf-deploy-base.yaml` to `.github/workf
 Caller workflow example:
 
 ```yaml
-name: Terraform Webapp Dev
+name: Terraform Networking Dev
 
 on:
   pull_request:
     paths:
-      - 'resources/environments/dev/webapp/**'
+      - 'resources/networking/**'
   workflow_dispatch:
 
 jobs:
   terraform:
     uses: ./.github/workflows/terraform-stack.yaml
     with:
-      working_directory: resources/environments/dev/webapp
-      tfvars_file: dev.tfvars
+      working_directory: resources/networking
+      tfvars_file: envs/dev.tfvars
       terraform_action: plan
       environment: dev
-      backend_state_key: tfstate.webapp.dev
+      backend_state_key: tfstate.webapp.networking.dev
     secrets: inherit
 ```
 
@@ -278,8 +334,9 @@ Set from the decision record and CI/CD variables:
 
 ```yaml
 variables:
-  TF_ROOT: "resources/environments/dev/webapp"
-  TFSTATE_KEY: "tfstate.webapp.dev"
+  TF_ROOT: "resources/networking"
+  TFVARS_FILE: "envs/dev.tfvars"
+  TFSTATE_KEY: "tfstate.webapp.networking.dev"
 ```
 
 Backend init flags must include `use_oidc=true` and `use_azuread_auth=true`. Never commit account names, keys, or subscription IDs.
@@ -366,8 +423,8 @@ Store output client/tenant/subscription IDs in the host secret store — never i
 
 1. Ask which menu item (**1–5**).
 2. **Module:** `modules/<name>/`, templates in this skill, `providers.tf`, `organization_name`, no backend.
-3. **Stack:** ask env, location, subscription, region-in-path/name/key; **location is always** on stack and in every module block; write `stack-decision.md`; `source = "../../../modules/<name>"` or `"../../../../modules/<name>"`.
-4. **Pipeline:** copy sibling `terraform-azure-pipelines` assets; parameterize from decision record; Terraform **1.15.8**.
+3. **Stack:** map resources to the **domain catalog** first — one stack per domain, never a mega-stack. Ask domains, environments, location, subscription, region-in-path/name/key. `.tf` once at `resources/<domain>/`, tfvars at `envs/<env>.tfvars`. Cross-domain reads are `data` blocks only. `source = "../../modules/<name>"`. Write `stack-decision.md` per domain.
+4. **Pipeline:** one per domain stack; copy sibling `terraform-azure-pipelines` assets; parameterize from decision record; Terraform **1.15.8**.
 5. **Bootstrap:** `scripts/bootstrap-tfstate.sh` or `.ps1` in this skill folder.
 6. **Connections:** `scripts/create-azure-oidc.sh` or `.ps1` + [references/azure-connections.md](references/azure-connections.md).
 7. Validate tier 1, then tier 2 (plan). **Never apply or destroy.**

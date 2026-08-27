@@ -32,18 +32,30 @@ Each skill folder is self-contained (`SKILL.md` plus `templates/`, `scripts/`, `
 ## What the agent creates (in the consumer repo)
 
 - Modules: `modules/<name>/`
-- Stacks: `resources/environments/<env>/<resource>/` (optional region folder)
+- Stacks: `resources/<domain>/` — **one stack per domain**, `.tf` written once, per-environment tfvars in `envs/<env>.tfvars`
 - Pipelines: `.github/workflows/`, `pipelines/azure_dev_ops/`, or `.gitlab/pipelines/`
 
-Naming: `{resource-type}-{organization_name}-{resource}-{environment}` (example: `rg-acme-webapp-dev`). Provider file is **`providers.tf`**. Stacks use an empty `backend "azurerm" {}`; pipelines inject state settings.
+A request for "a resource group, VNet, container apps, ACR, key vault, storage and Log Analytics" becomes **seven stacks**, not one `main.tf`:
 
-Microsoft [Azure Developer CLI](https://learn.microsoft.com/azure/developer/azure-developer-cli/use-terraform-for-azd) templates and [azure-skills](https://github.com/microsoft/azure-skills) use `infra/` (often with `azd up`). This pack does **not**. Do not rewrite an existing `infra/` tree into `modules/` / `resources/environments/` unless the operator asks. Rejected aliases: `infra/resources/`, flat `resources/<resource>/`.
+```
+resources/resource-group/     resources/key-vaults/
+resources/networking/         resources/container-registry/
+resources/observability/      resources/storage/
+                              resources/container-apps/
+```
+
+Stacks read each other with azurerm **`data` blocks** only — never `terraform_remote_state`, never cross-stack module outputs. Because `{resource}` is the workload and stays constant across a workload's stacks, any stack can reconstruct another's names from variables it already has.
+
+Naming: `{resource-type}-{organization_name}-{resource}-{environment}` (example: `rg-acme-webapp-dev`). State key: `tfstate.{resource}.{domain}.{environment}`. Provider file is **`providers.tf`**. Stacks use an empty `backend "azurerm" {}`; pipelines inject state settings.
+
+Microsoft [Azure Developer CLI](https://learn.microsoft.com/azure/developer/azure-developer-cli/use-terraform-for-azd) templates and [azure-skills](https://github.com/microsoft/azure-skills) use `infra/` (often with `azd up`). This pack does **not**. Do not rewrite an existing `infra/` tree into `modules/` / `resources/<domain>/` unless the operator asks. Rejected aliases: `infra/resources/`, `resources/environments/<env>/<resource>/` (superseded), and any layout that duplicates `.tf` per environment.
 
 | | Microsoft `infra/` | This pack |
 | --- | --- | --- |
 | Who it is for | App repo next to `src/`, often `azd` | Dedicated Terraform repo / module library |
 | Modules | `infra/modules/` | `modules/` at repo root |
-| Envs | tfvars beside one root | `resources/environments/<env>/<resource>/` (own state key) |
+| Envs | tfvars beside one root | `resources/<domain>/envs/<env>.tfvars` (own state key per domain per env) |
+| Composition | one root wires everything | one stack per domain; cross-stack reads are `data` blocks |
 | Deploy | `azd up` is the default in Microsoft skills | `az` + `terraform plan`; apply is human/gated CI |
 
 ## Scripts (safety)

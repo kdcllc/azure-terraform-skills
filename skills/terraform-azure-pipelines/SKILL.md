@@ -27,15 +27,24 @@ Do not use this skill to run `terraform apply` locally, to rewrite reusable modu
 
 ## Stack path and backend
 
-Environment stacks live at:
+Stacks are **one root module per domain**, with `.tf` written once and all per-environment tfvars in a single `envs/` folder:
 
 ```
-resources/environments/<env>/<resource>/
+resources/<domain>/
+  main.tf
+  data.tf
+  envs/
+    dev.tfvars
+    prod.tfvars
 ```
 
-Create that directory tree if it is missing. Do not use `infra/resources/` or a flat `resources/<resource>/` layout.
+Do not use `resources/environments/<env>/<resource>/` (superseded) or `infra/resources/`.
 
-Point `working_directory` / `workingDirectory` at that path. Keep `backend.tf` empty so the pipeline injects storage settings:
+**One pipeline (or one caller job) per domain stack.** Each domain has its own working directory and its own state key, so they cannot share a job. Scope trigger paths to `resources/<domain>/**` so an unrelated domain's change does not replan everything.
+
+**Plan order follows dependency tier.** A `data` block in a higher-tier stack fails until the lower-tier stack has been applied. Order jobs `resource-group` → tier 2 → tier 3 → tier 4, and treat a missing-data failure in an unapplied environment as expected, not as a pipeline defect.
+
+Point `working_directory` / `workingDirectory` at `resources/<domain>`, and the tfvars parameter at `envs/<env>.tfvars` (relative to the working directory). Keep `backend.tf` empty so the pipeline injects storage settings:
 
 ```hcl
 terraform {
@@ -98,10 +107,10 @@ jobs:
   terraform:
     uses: ./.github/workflows/terraform-stack.yaml
     with:
-      working_directory: resources/environments/dev/example_stack
-      tfvars_file: dev.tfvars
+      working_directory: resources/networking
+      tfvars_file: envs/dev.tfvars
       terraform_action: ${{ github.event.inputs.terraform_action || 'plan' }}
-      backend_state_key: tfstate.example_stack.dev
+      backend_state_key: tfstate.webapp.networking.dev
       environment: dev
     secrets: inherit
 ```
@@ -121,6 +130,8 @@ trigger: none
 
 parameters:
   - name: resource
+    type: string
+  - name: domain
     type: string
   - name: workingDirectory
     type: string
@@ -144,19 +155,19 @@ extends:
     backendAzureRmResourceGroupName: ${{ parameters.stateResourceGroup }}
     backendAzureRmStorageAccountName: ${{ parameters.stateStorageAccount }}
     backendAzureRmContainerName: tfstate
-    backendAzureRmKey: tfstate.${{ parameters.resource }}.dev
+    backendAzureRmKey: tfstate.${{ parameters.resource }}.${{ parameters.domain }}.dev
     workingDirectory: ${{ parameters.workingDirectory }}
-    tfvarsFile: dev.tfvars
+    tfvarsFile: envs/dev.tfvars
     terraformAction: ${{ parameters.terraformAction }}
 ```
 
 ## GitLab (optional third host)
 
-If the consumer uses GitLab, copy [assets/gitlab-ci-terraform-template.yml](assets/gitlab-ci-terraform-template.yml) to `.gitlab/pipelines/gitlab-ci-terraform-template.yml`. Image is `hashicorp/terraform:1.15.8`. Parameterize `TF_ROOT` as `resources/environments/<env>/<resource>/`. Apply is manual on `main`. Do **not** add a new GitLab file unless the consumer asked for GitLab.
+If the consumer uses GitLab, copy [assets/gitlab-ci-terraform-template.yml](assets/gitlab-ci-terraform-template.yml) to `.gitlab/pipelines/gitlab-ci-terraform-template.yml`. Image is `hashicorp/terraform:1.15.8`. Parameterize `TF_ROOT` as `resources/<domain>/` and the var-file as `envs/<env>.tfvars`. Apply is manual on `main`. Do **not** add a new GitLab file unless the consumer asked for GitLab.
 
 ## Agent checklist
 
-1. Confirm the stack path `resources/environments/<env>/<resource>/` (create if missing) and empty `backend "azurerm" {}`.
+1. Confirm the stack path `resources/<domain>/` (one job per domain) and empty `backend "azurerm" {}`. State key is `tfstate.{resource}.{domain}.{environment}`; tfvars is `envs/<env>.tfvars`.
 2. **Copy assets** from this skill into the consumer repo (do not rewrite YAML from memory).
 3. Choose host: GitHub Actions reusable `workflow_call`, or Azure DevOps `extends` template (GitLab only if asked).
 4. Wire OIDC or a service-connection **parameter**; no key/SAS/subscription literals.

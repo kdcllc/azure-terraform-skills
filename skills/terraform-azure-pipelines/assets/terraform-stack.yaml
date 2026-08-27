@@ -22,14 +22,14 @@ on:
   workflow_dispatch:
     inputs:
       working_directory:
-        description: 'Stack path (e.g. resources/environments/dev/webapp)'
+        description: 'Domain stack path (e.g. resources/networking)'
         required: true
         type: string
       tfvars_file:
-        description: 'TFVars file relative to working directory'
+        description: 'TFVars file relative to working directory (e.g. envs/dev.tfvars)'
         required: true
         type: string
-        default: dev.tfvars
+        default: envs/dev.tfvars
       terraform_action:
         description: 'Terraform action'
         required: true
@@ -44,7 +44,7 @@ on:
         required: true
         type: string
       backend_state_key:
-        description: 'State blob key (e.g. tfstate.webapp.dev); optional'
+        description: 'State blob key, tfstate.{resource}.{domain}.{environment} (e.g. tfstate.webapp.networking.dev); optional'
         required: false
         type: string
 

@@ -8,7 +8,7 @@ parameters:
 
 - name: backendAzureRmKey
   type: string
-  displayName: 'AzureRmKey: Terraform state file name i.e. tfstate.parameters.resource.qa'
+  displayName: 'AzureRmKey: state blob key, tfstate.{resource}.{domain}.{environment} i.e. tfstate.webapp.networking.qa'
 
 - name: backendAzureRmResourceGroupName
   type: string
@@ -25,13 +25,13 @@ parameters:
   
 - name: workingDirectory
   type: string
-  displayName: 'Working Directory'
+  displayName: 'Working Directory: one domain stack, i.e. resources/networking'
   default: '.'
 
 - name: tfvarsFile
   type: string
-  displayName: 'Terraform Variables File'
-  default: 'terraform.tfvars'
+  displayName: 'Terraform Variables File, relative to working directory i.e. envs/dev.tfvars'
+  default: 'envs/dev.tfvars'
 
 stages:
 - stage: TerraformPipeline
