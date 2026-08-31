@@ -7,6 +7,8 @@ description: >-
   when creating a pipeline, adding Terraform CI, GitHub Actions, Azure DevOps,
   plan jobs, or OIDC for azurerm state.
 license: MIT
+metadata:
+  version: "1.0.0"
 ---
 
 # Terraform Azure pipelines

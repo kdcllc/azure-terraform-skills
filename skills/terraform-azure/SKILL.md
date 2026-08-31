@@ -8,6 +8,8 @@ description: >-
   stack, pipeline, bootstrap, or connection work in a consumer Azure Terraform
   repository.
 license: MIT
+metadata:
+  version: "1.0.0"
 ---
 
 # Terraform Azure (`terraform-azure`)
