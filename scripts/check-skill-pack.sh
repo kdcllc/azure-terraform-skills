@@ -197,14 +197,17 @@ check_pin_consistency() {
   local rel full
   for rel in "${AZURERM_PIN_FILES[@]}"; do
     full="${PACK_ROOT}/${rel}"
+    [[ -f "$full" ]] || fail "missing pin-check path: ${rel}"
     grep -qF "$AZURERM_PIN" "$full" || fail "azurerm pin drift (want '${AZURERM_PIN}'): ${rel}"
   done
   for rel in "${TF_REQ_PIN_FILES[@]}"; do
     full="${PACK_ROOT}/${rel}"
+    [[ -f "$full" ]] || fail "missing pin-check path: ${rel}"
     grep -qF "$TF_REQ_PIN" "$full" || fail "required_version pin drift (want '${TF_REQ_PIN}'): ${rel}"
   done
   for rel in "${TF_CLI_PIN_FILES[@]}"; do
     full="${PACK_ROOT}/${rel}"
+    [[ -f "$full" ]] || fail "missing pin-check path: ${rel}"
     grep -qF "$TF_CLI_PIN" "$full" || fail "terraform CLI pin drift (want '${TF_CLI_PIN}'): ${rel}"
   done
 }
