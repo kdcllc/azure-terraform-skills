@@ -63,7 +63,11 @@ skills/
   terraform-azure-modules/
   terraform-azure-pipelines/
   terraform-azure-upgrade/
-scripts/check-skill-pack.sh
+scripts/check-skill-pack.sh   # pack validator (versions, changelog, pins)
+scripts/release.sh            # bump + validate + commit + tag vX.Y.Z
+CHANGELOG.md                  # per-release notes incl. upgrade notes
+VERSIONING.md                 # semver policy and release checklist
+.github/workflows/            # CI validation and tag-push releases
 _unpacked/                    # historical source material; not installed
 ```
 
@@ -80,6 +84,36 @@ List what the CLI would install (must be the four product skills only):
 ```bash
 npx skills add . --list
 ```
+
+## Versioning
+
+Releases are git tags (`vX.Y.Z`) covering the whole pack — one version for all
+four skills ([policy](VERSIONING.md)). Every installed `SKILL.md` carries that
+version in its frontmatter (`metadata.version`), so you can always check what
+you have on disk.
+
+Pin to a release (recommended):
+
+```bash
+npx skills add kdcllc/azure-terraform-skills#v1.0.0
+```
+
+Install the latest (default-branch tip — moves without notice):
+
+```bash
+npx skills add kdcllc/azure-terraform-skills
+```
+
+Upgrading: read the target version's [CHANGELOG](CHANGELOG.md) entry —
+especially **Upgrade notes** — then re-add with the new tag:
+
+```bash
+npx skills add kdcllc/azure-terraform-skills#v1.1.0
+```
+
+Note the ref goes after `#`, not `@` (`@name` selects a single skill, not a
+version). `npx skills update` re-downloads from the ref you pinned, so pinned
+installs stay on their tag until you deliberately re-add with a newer one.
 
 ## License
 

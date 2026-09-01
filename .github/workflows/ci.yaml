@@ -1,0 +1,26 @@
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate pack
+        run: bash scripts/check-skill-pack.sh
+
+      - name: List installable skills (must include all four)
+        run: |
+          out="$(npx -y skills add . --list)"
+          echo "$out"
+          for s in terraform-azure terraform-azure-modules terraform-azure-pipelines terraform-azure-upgrade; do
+            grep -q "$s" <<<"$out" || { echo "missing skill: $s" >&2; exit 1; }
+          done
