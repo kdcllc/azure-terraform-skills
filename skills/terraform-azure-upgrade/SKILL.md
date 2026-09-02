@@ -8,6 +8,8 @@ description: >-
   Does not bulk-rewrite an entire modules/ tree unless the operator lists
   target folders. Never apply.
 license: MIT
+metadata:
+  version: "1.0.0"
 ---
 
 # Terraform Azure upgrade

@@ -7,6 +7,8 @@ description: >-
   module, apply Azure resource naming, or wrap an azurerm resource as a library
   module.
 license: MIT
+metadata:
+  version: "1.0.0"
 ---
 
 # Terraform Azure modules
