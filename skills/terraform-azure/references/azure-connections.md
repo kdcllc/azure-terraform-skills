@@ -140,7 +140,8 @@ Pipeline templates use the service connection name; backend init uses OIDC + Azu
    - `AZURE_CLIENT_ID`
    - `AZURE_TENANT_ID`
    - `AZURE_SUBSCRIPTION_ID`
-4. Workflow must request OIDC (`permissions: id-token: write`) and use `azure/login` (or equivalent) with those secrets. Copy the GitHub workflow assets from the sibling `terraform-azure-pipelines` skill (`assets/terraform-stack.yaml`, `assets/tf-deploy-base.yaml`) into the consumer `.github/workflows/` directory.
+4. Workflow must request OIDC (`permissions: id-token: write`) and use `azure/login` (or equivalent) with those secrets. Copy the GitHub workflow assets from the sibling `terraform-azure-pipelines` skill (`assets/tf-deploy-base.yaml` once, `assets/examples/terraform-domain.yaml` per domain) into the consumer `.github/workflows/` directory.
+5. `tf-deploy-base.yaml` runs as a single job with no `environment:` key, so its OIDC subject is the branch or pull request — `repo:<org>/<repo>:ref:refs/heads/<branch>` and `repo:<org>/<repo>:pull_request`. `create-azure-oidc.sh --host github` creates an **environment-scoped** subject (`repo:<org>/<repo>:environment:<env>`) instead, so either add a branch/PR federated credential alongside it, or add `environment: <env>` to the workflow job to match. A subject mismatch surfaces as `AADSTS700213` at the `azure/login` step.
 
 Grant workload RBAC separately on the target subscription or RG.
 

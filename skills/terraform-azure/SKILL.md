@@ -299,32 +299,56 @@ Parameterize from the decision record. Use placeholder names like `acme` — nev
 
 ### GitHub Actions
 
-Copy `../terraform-azure-pipelines/assets/tf-deploy-base.yaml` to `.github/workflows/tf-deploy-base.yaml` and `../terraform-azure-pipelines/assets/terraform-stack.yaml` to `.github/workflows/terraform-stack.yaml`.
+Copy `../terraform-azure-pipelines/assets/tf-deploy-base.yaml` once to `.github/workflows/tf-deploy-base.yaml`, then copy `../terraform-azure-pipelines/assets/examples/terraform-domain.yaml` **per domain** to `.github/workflows/terraform-<domain>.yaml`. One caller per domain stack, one shared base:
+
+```
+.github/workflows/
+  tf-deploy-base.yaml
+  terraform-resource-group.yaml
+  terraform-networking.yaml
+  terraform-key-vaults.yaml
+```
 
 Caller workflow example:
 
 ```yaml
-name: Terraform Networking Dev
+name: Terraform Networking
 
 on:
   pull_request:
     paths:
       - 'resources/networking/**'
   workflow_dispatch:
+    inputs:
+      terraform_action:
+        type: choice
+        options: [plan, apply, destroy]
+        default: plan
+      confirm_destroy:
+        description: '⚠️ DESTROY: tick to confirm teardown'
+        type: boolean
+        default: false
+      environment:
+        type: choice
+        options: [dev, prod]
+        default: dev
 
 jobs:
   terraform:
-    uses: ./.github/workflows/terraform-stack.yaml
+    uses: ./.github/workflows/tf-deploy-base.yaml
     with:
       working_directory: resources/networking
-      tfvars_file: envs/dev.tfvars
-      terraform_action: plan
-      environment: dev
-      backend_state_key: tfstate.webapp.networking.dev
+      tfvars_file: envs/${{ inputs.environment || 'dev' }}.tfvars
+      terraform_action: ${{ inputs.terraform_action || 'plan' }}
+      environment: ${{ inputs.environment || 'dev' }}
+      backend_state_key: tfstate.webapp.networking.${{ inputs.environment || 'dev' }}
+      confirm_destroy: ${{ inputs.confirm_destroy || false }}
     secrets: inherit
 ```
 
-Default `terraform_action` is **plan**. Apply is opt-in only — this skill never triggers apply.
+Default `terraform_action` is **plan**. Apply is opt-in only — this skill never triggers apply. Destroy is offered but requires the `confirm_destroy` checkbox in addition to picking `destroy`; the run fails on its first step, before checkout and Azure login, if the box is unticked.
+
+`terraform fmt -check -recursive` runs before init and **fails the job**. Never soften it with `continue-on-error`.
 
 Backend storage settings come from repository/environment **variables** (`TFSTATE_RESOURCE_GROUP`, `TFSTATE_STORAGE_ACCOUNT`, `TFSTATE_CONTAINER`), not hardcoded in workflows.
 

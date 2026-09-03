@@ -4,6 +4,7 @@
 # (resource-group, then tier 2, …) — a data block fails until its upstream
 # domain has been applied.
 # Fill in service connection and state storage parameters at queue time (no hardcoded account names).
+# terraformAction defaults to plan. Selecting destroy also requires ticking confirmDestroy.
 trigger: none
 
 parameters:
@@ -23,6 +24,20 @@ parameters:
   type: string
   default: dev
 
+- name: terraformAction
+  type: string
+  displayName: 'Terraform action'
+  default: plan
+  values:
+    - plan
+    - apply
+    - destroy
+
+- name: confirmDestroy
+  type: boolean
+  displayName: '⚠️ DESTROY: confirm teardown of this stack'
+  default: false
+
 extends:
   template: /pipelines/azure_dev_ops/shared/azure-pipelines.yaml
   parameters:
@@ -31,4 +46,6 @@ extends:
     backendAzureRmStorageAccountName: # Storage account name
     backendServiceArm: # Service connection name
     workingDirectory: ${{ parameters.workingDirectory }}
-    tfvarsFile: '${{ parameters.environment }}/${{ parameters.environment }}.tfvars'
+    tfvarsFile: 'envs/${{ parameters.environment }}.tfvars'
+    terraformAction: ${{ parameters.terraformAction }}
+    confirmDestroy: ${{ parameters.confirmDestroy }}

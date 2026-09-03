@@ -30,9 +30,29 @@ REQUIRED_PATHS=(
   skills/terraform-azure-upgrade/reference.md
   skills/terraform-azure-pipelines/assets/tf-deploy-base.yaml
   skills/terraform-azure-pipelines/assets/terraform-stack.yaml
+  skills/terraform-azure-pipelines/assets/examples/terraform-domain.yaml
   skills/terraform-azure-pipelines/assets/azure-pipelines.yaml
   skills/terraform-azure-pipelines/assets/gitlab-ci-terraform-template.yml
 )
+
+# Destroy is offered on every host, and every host requires a confirmation input the
+# operator sets on top of choosing destroy. Losing that input is a regression.
+DESTROY_GATE_CHECKS=(
+  "skills/terraform-azure-pipelines/assets/tf-deploy-base.yaml|confirm_destroy"
+  "skills/terraform-azure-pipelines/assets/examples/terraform-domain.yaml|confirm_destroy"
+  "skills/terraform-azure-pipelines/assets/terraform-stack.yaml|confirm_destroy"
+  "skills/terraform-azure-pipelines/assets/azure-pipelines.yaml|confirmDestroy"
+  "skills/terraform-azure-pipelines/assets/gitlab-ci-terraform-template.yml|CONFIRM_DESTROY"
+)
+
+# terraform fmt -check must run on every host and must fail the job. Assets carrying a
+# runner-level soft-fail switch alongside it would silently downgrade the policy.
+FMT_CHECK_FILES=(
+  skills/terraform-azure-pipelines/assets/tf-deploy-base.yaml
+  skills/terraform-azure-pipelines/assets/azure-pipelines.yaml
+  skills/terraform-azure-pipelines/assets/gitlab-ci-terraform-template.yml
+)
+FMT_SOFT_FAIL_PATTERN='continue-on-error: true|allow_failure: true'
 
 SKILL_PATHS=(
   skills/terraform-azure/SKILL.md
@@ -215,6 +235,30 @@ check_pin_consistency() {
   done
 }
 
+check_destroy_gates() {
+  local entry rel token full
+  for entry in "${DESTROY_GATE_CHECKS[@]}"; do
+    rel="${entry%%|*}"
+    token="${entry##*|}"
+    full="${PACK_ROOT}/${rel}"
+    [[ -f "$full" ]] || fail "missing destroy-gate path: ${rel}"
+    grep -qF "$token" "$full" || fail "destroy gate missing '${token}': ${rel}"
+  done
+}
+
+check_fmt_is_hard() {
+  local rel full
+  for rel in "${FMT_CHECK_FILES[@]}"; do
+    full="${PACK_ROOT}/${rel}"
+    [[ -f "$full" ]] || fail "missing fmt-check path: ${rel}"
+    grep -qF 'fmt -check -recursive' "$full" \
+      || fail "no 'terraform fmt -check -recursive' step: ${rel}"
+    if grep -qE "$FMT_SOFT_FAIL_PATTERN" "$full"; then
+      fail "fmt policy is fail-closed; remove the soft-fail switch: ${rel}"
+    fi
+  done
+}
+
 check_skill_line_cap() {
   local rel="$1"
   local full="${PACK_ROOT}/${rel}"
@@ -257,6 +301,8 @@ done
 check_skill_versions
 check_changelog_entry
 check_pin_consistency
+check_destroy_gates
+check_fmt_is_hard
 check_banned_strings
 
 # Stack-decomposition contract: one domain per stack, data-block composition.

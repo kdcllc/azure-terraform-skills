@@ -99,7 +99,11 @@ Adding a VNet later does **not** mean editing this `main.tf`. It means creating 
 
 ## A5. Menu 3 — pipeline
 
-Copy **terraform-azure-pipelines** assets (Terraform **1.15.8**, Entra backend: `use_oidc=true`, `use_azuread_auth=true`). Point `working_directory` at `resources/resource-group` and `tfvars_file` at `envs/dev.tfvars`. One job per domain stack. Default job is plan, not apply.
+Copy **terraform-azure-pipelines** assets (Terraform **1.15.8**, Entra backend: `use_oidc=true`, `use_azuread_auth=true`). On GitHub that is `tf-deploy-base.yaml` once plus a `terraform-<domain>.yaml` per stack. Point `working_directory` at `resources/resource-group` and `tfvars_file` at `envs/dev.tfvars`. One workflow per domain stack. Default action is plan, not apply.
+
+`terraform fmt -check -recursive` runs before init and **fails the job** — unformatted Terraform never reaches plan.
+
+Every generated workflow also offers **destroy**, gated by a `confirm_destroy` checkbox on the dispatch form. Choosing `destroy` without ticking it fails on the workflow's first step, before checkout and before Azure login. For a human approval step on top of that, add a GitHub Environment with required reviewers to the job — the skills copy YAML, they cannot create protection rules.
 
 ### Scenario A — what “done” looks like
 
