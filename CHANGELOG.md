@@ -8,6 +8,40 @@ especially its **Upgrade notes**.
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-09-03
+
+Two bodies of work: the **stack decomposition contract** (breaking) and a
+**pipeline overhaul** (destroy gating, mandatory fmt, Node 24 actions).
+
+### Changed — BREAKING: stack layout
+
+- **Stacks are now one root module per domain.** `resources/<domain>/` holds `.tf` written
+  **once**, with per-environment tfvars in `envs/<env>.tfvars` selected by `-var-file` and
+  the injected backend key. The working directory is the domain folder for every
+  environment.
+- **`resources/environments/<env>/<resource>/` is superseded and rejected**, along with
+  flat `resources/<resource>/`, `infra/resources/`, and any layout that duplicates `.tf`
+  per environment. Repos built to v1.0.0 guidance are laid out the old way — see Upgrade
+  notes.
+- **A stack owns exactly one domain.** Mega-stacks that provision a resource group *and* a
+  network *and* a key vault in one state file are rejected. Domains carry a dependency
+  tier; a stack may read from lower tiers only.
+- **Cross-domain reads are azurerm `data` blocks only** — never module outputs, never
+  `terraform_remote_state`, never a hardcoded ID in tfvars. If azurerm publishes no data
+  source for a type, its dependents belong in the same stack rather than reaching for
+  `terraform_remote_state`.
+- State keys take the shape `tfstate.{resource}.{domain}.{environment}`, with an optional
+  `.{region}` segment.
+- Resource naming (`{resource-type}-{organization_name}-{resource}-{environment}`) and the
+  frozen module source (`../../modules/<name>`) are **unchanged**.
+
+### Added — stacks
+
+- `templates/stack/data.tf.tmpl` — the cross-domain lookup file every stack now carries.
+- `stack-decision.md` per domain, recording the decomposition choice.
+- `scripts/check-stack-conventions.sh`, run by `check-skill-pack.sh`, guarding the contract:
+  one domain per stack, `.tf` once, per-environment tfvars, `data`-block composition only.
+
 ### Added
 
 - `terraform-azure-pipelines`: **destroy is now a standard action on every host**, offered
@@ -54,6 +88,20 @@ especially its **Upgrade notes**.
 
 ### Upgrade notes
 
+- **Existing stacks must be relaid out.** A v1.0.0 repo has
+  `resources/environments/<env>/<resource>/` with `.tf` duplicated per environment. Moving
+  to `resources/<domain>/` means: group resources onto domains, keep one copy of the `.tf`,
+  turn the per-environment differences into `envs/<env>.tfvars`, and replace any
+  cross-stack module output or `terraform_remote_state` read with an azurerm `data` block.
+- **State keys move with the layout.** The new shape is
+  `tfstate.{resource}.{domain}.{environment}`. A relaid-out stack points at a different
+  blob than the one holding its current state — plan against the new key and confirm the
+  diff is empty before applying, or migrate state deliberately. **Do not let a re-keyed
+  stack plan a create-from-scratch over live infrastructure.**
+- **One pipeline per domain stack.** Each domain has its own working directory and state
+  key, so a single job can no longer cover several. Order runs by tier — a `data` block in
+  a higher tier fails until its lower-tier stack has been applied, which is expected in a
+  fresh environment, not a pipeline defect.
 - **Unformatted Terraform now fails CI.** Run `terraform fmt -recursive` and commit before
   taking this version, or the first pipeline run after upgrading will fail at the format
   step.
