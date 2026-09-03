@@ -24,6 +24,16 @@ especially its **Upgrade notes**.
 
 ### Changed
 
+- **GitHub Actions bumped off the deprecated Node 20 runtime.** `tf-deploy-base.yaml` now
+  uses `actions/checkout@v7`, `azure/login@v3`, `hashicorp/setup-terraform@v4`, and
+  `actions/upload-artifact@v7` — all `node24`. Every input used is unchanged across the
+  bump, so this is a drop-in replacement. `check-skill-pack.sh` rejects assets that
+  reintroduce a Node 20-era major.
+- Checkout now sets `persist-credentials: false`. Module sources are frozen to relative
+  paths and no step pushes, so the job needs no git credential on disk. Flip it back only
+  if a stack adopts a private git module source.
+- `upload-artifact` now sets `if-no-files-found: error`; the default `warn` let a plan that
+  produced no file upload nothing and still report success.
 - **`terraform fmt -check -recursive` now fails the job on every host.** `tf-deploy-base.yaml`
   loses its `continue-on-error: true`, and the Azure DevOps template gains a format step it
   never had. `check-skill-pack.sh` enforces this: an asset without the step, or carrying
@@ -51,6 +61,9 @@ especially its **Upgrade notes**.
   `tf-deploy-base.yaml`; the two changed together.
 - No new federated credential is needed — `tf-deploy-base.yaml` is still a single job with
   no `environment:` key, so its OIDC subject is unchanged.
+- **Self-hosted runners need a runner release that ships Node 24.** GitHub-hosted runners
+  already have it; an old self-hosted runner will fail to start the bumped actions rather
+  than warn. Update the runner agent before taking this version.
 
 ## [1.0.0] - 2026-08-31
 

@@ -54,6 +54,11 @@ FMT_CHECK_FILES=(
 )
 FMT_SOFT_FAIL_PATTERN='continue-on-error: true|allow_failure: true'
 
+# GitHub-hosted runners warn when an action's major still targets Node 20, and will
+# eventually stop running them. Assets must not reintroduce a retired major. Add a
+# line here when a major goes Node 20-only; drop nothing, majors do not un-deprecate.
+DEPRECATED_ACTION_MAJORS='actions/checkout@v[1-4]|azure/login@v[12]|hashicorp/setup-terraform@v[1-3]|actions/upload-artifact@v[1-4]'
+
 SKILL_PATHS=(
   skills/terraform-azure/SKILL.md
   skills/terraform-azure-modules/SKILL.md
@@ -259,6 +264,16 @@ check_fmt_is_hard() {
   done
 }
 
+check_action_majors() {
+  local matches
+  matches="$(grep -rEn "$DEPRECATED_ACTION_MAJORS" \
+    "${PACK_ROOT}/skills" "${PACK_ROOT}/.github" 2>/dev/null || true)"
+  if [[ -n "$matches" ]]; then
+    echo "$matches" >&2
+    fail "action major targets Node 20; bump to the current major"
+  fi
+}
+
 check_skill_line_cap() {
   local rel="$1"
   local full="${PACK_ROOT}/${rel}"
@@ -303,6 +318,7 @@ check_changelog_entry
 check_pin_consistency
 check_destroy_gates
 check_fmt_is_hard
+check_action_majors
 check_banned_strings
 
 # Stack-decomposition contract: one domain per stack, data-block composition.

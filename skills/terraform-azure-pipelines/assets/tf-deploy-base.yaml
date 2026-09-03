@@ -5,6 +5,9 @@
 # Destroy is offered on every caller's dropdown and is gated by the confirm_destroy
 # checkbox: picking "destroy" alone is not enough, and the run fails before checkout
 # or Azure login if the box is not ticked.
+#
+# Actions here run on Node 24 and need Actions Runner >= 2.327.1. GitHub-hosted runners
+# have it; a self-hosted runner older than that fails to start the actions outright.
 name: Terraform Deploy Base Module
 
 on:
@@ -93,16 +96,22 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+        with:
+          # Module sources are frozen to relative paths (../../modules/<name>), so init
+          # never fetches over git and the job never pushes. Leaving the token in the
+          # local git config would be a credential no step here needs. Set this back to
+          # true only if a stack adopts a private git module source.
+          persist-credentials: false
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: ${{ env.TF_VERSION }}
           terraform_wrapper: false
 
       - name: Azure Login
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -231,12 +240,18 @@ jobs:
 
       - name: Upload Plan Artifact
         if: inputs.terraform_action == 'plan'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: terraform-plan-${{ github.run_number }}
           path: ${{ inputs.working_directory }}/tfplan
+          # Default is 'warn' — a plan that produced no file would upload nothing and
+          # still go green. Fail instead.
+          if-no-files-found: error
           # A plan file can carry values read out of state. Keep retention short.
           retention-days: 5
+          # v7 can upload a lone file unzipped via archive:false, but that ignores
+          # `name` and names the artifact after the file — every stack's plan would
+          # land as "tfplan". Keep the archive so the name stays identifying.
 
       - name: Job Summary
         if: always()
