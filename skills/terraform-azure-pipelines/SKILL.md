@@ -10,7 +10,7 @@ description: >-
   OIDC for azurerm state.
 license: MIT
 metadata:
-  version: "1.0.0"
+  version: "2.0.0"
 ---
 
 # Terraform Azure pipelines
