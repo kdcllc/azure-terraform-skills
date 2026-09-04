@@ -13,6 +13,12 @@ variable "environment" {
   type        = string
 }
 
+variable "name_segment" {
+  description = "Resource-group module only: rg_segment of the owning domain in the per-type layout (e.g. kv). Leave empty for the single layout. Delete this variable in other module types."
+  type        = string
+  default     = ""
+}
+
 variable "location" {
   description = "The Azure region where the resource will be created"
   type        = string

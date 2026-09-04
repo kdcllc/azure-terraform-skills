@@ -2,7 +2,7 @@
 
 Human operators and the `/terraform-azure` skill share this contract. Later tasks, skills, and agents must not invent a second layout, require Azure Developer CLI, or skip ask-at-create-time questions.
 
-**Layout freeze:** [ai-conventions.md](ai-conventions.md)
+**Layout freeze:** [ai-conventions.md](ai-conventions.md) · **Resource group layout:** [resource-group-layout.md](resource-group-layout.md)
 
 ## Workstation tools
 
@@ -55,7 +55,7 @@ Library modules do **not** declare a backend.
 Every stack includes at minimum:
 
 - `main.tf` — `module` blocks with relative `source`, **for one domain only**
-- `data.tf` — azurerm `data` lookups of other domains (omit for tier 1)
+- `data.tf` — azurerm `data` lookups of other domains (omit when `upstream_domains` is empty)
 - `variables.tf` — stack inputs including **`location`**
 - `providers.tf` — root `provider "azurerm"` with explicit `resource_provider_registrations`
 - `backend.tf` — empty `backend "azurerm" {}` (pipeline or CLI injects settings)
@@ -65,12 +65,14 @@ Every stack includes at minimum:
 
 **One domain per stack.** A stack that provisions a resource group *and* a VNet *and* a key vault is a defect — split it. Map requested resources onto the domain catalog in [ai-conventions.md](ai-conventions.md) before writing files.
 
+In the default **`per-type`** resource group layout the domain's own resource group belongs to that domain's stack — it is the domain's container, not a second domain, and the stack stays single-domain. In the **`single`** layout the tier-1 `resource-group` stack owns the one RG and the others read it. See [resource-group-layout.md](resource-group-layout.md).
+
 Terraform is written **once per domain** and shared by every environment; only tfvars vary:
 
 ```
 resources/<domain>/
   main.tf            # modules for THIS domain only
-  data.tf            # lookups of other domains (omit for tier 1)
+  data.tf            # lookups of other domains (omit when there is no upstream)
   variables.tf
   providers.tf
   backend.tf
@@ -97,7 +99,22 @@ resources/<domain>/envs/<env>.<region>.tfvars
 
 ### Cross-stack references
 
-A stack reads another domain through an azurerm `data` block only. Names are reconstructed from variables the stack already declares, because `var.resource` (the workload) is identical across a workload's domain stacks:
+A stack reads another domain through an azurerm `data` block only. Names are reconstructed from variables the stack already declares, because `var.resource` (the workload) is identical across a workload's domain stacks. In the `per-type` layout the upstream resource lives in the **upstream domain's** resource group:
+
+```hcl
+locals {
+  upstream_rg = {
+    "observability" = "rg-${var.organization_name}-${var.resource}-obs-${var.environment}"
+  }
+}
+
+data "azurerm_log_analytics_workspace" "this" {
+  name                = "log-${var.organization_name}-${var.resource}-${var.environment}"
+  resource_group_name = local.upstream_rg["observability"]
+}
+```
+
+In the `single` layout there is one RG for the workload, read directly:
 
 ```hcl
 data "azurerm_resource_group" "this" {
@@ -133,6 +150,7 @@ When creating a **new stack (class)**, the operator or `/terraform-azure` skill 
 3. **Azure region (location)** — e.g. `eastus`, `westeurope` (Azure location string).
 4. **Subscription** — current `az account show` subscription, or another subscription/tenant ID the stack will target.
 5. **Region in layout** — whether `<region>` appears in the tfvars filename, the resource name, the state key, several, or none.
+6. **Resource group layout** — `per-type` (**default**: one RG per domain, `rg-acme-webapp-kv-dev`, owned by that domain's stack) or `single` (one RG for the workload, `rg-acme-webapp-dev`, owned by the tier-1 `resource-group` stack). Chosen once per workload and identical in every stack of that workload. Details: [resource-group-layout.md](resource-group-layout.md).
 
 **location is always** a stack variable (`variables.tf`) and **is always** passed into every module block, even when region appears nowhere else. Modules never infer region from path alone.
 
@@ -151,6 +169,8 @@ Default Azure resource name pattern:
 `{resource}` is the **workload** and is identical across every domain stack for that workload. The domain lives in the folder and the state key, never in the resource name — `kv-acme-webapp-dev`, not `kv-acme-key-vaults-dev`. Holding it constant is what lets any stack derive another stack's names in `data.tf`.
 
 If the operator chooses **region-in-name**, append `-{region}` as an **allowed suffix of the same pattern** (Azure-legal, lowercase), e.g. `rg-acme-webapp-dev-eastus`. This is not a second naming scheme.
+
+In the **`per-type`** resource group layout the resource group inserts the domain's `rg_segment` before `{environment}` — `rg-acme-webapp-kv-dev` — as an **allowed segment of the same pattern**. Only the resource group takes a segment; the key vaults inside it are still `kv-acme-webapp-dev`. With both options: `rg-acme-webapp-kv-dev-eastus`.
 
 Default remote state blob key:
 
@@ -194,6 +214,8 @@ Each domain stack includes **`stack-decision.md`** in its working directory. Req
 | `region_in_path` | `true` / `false` — `envs/<env>.<region>.tfvars` filename |
 | `region_in_name` | `true` / `false` — `-{region}` suffix on resource names |
 | `region_in_key` | `true` / `false` — `.{region}` suffix on state keys |
+| `resource_group_layout` | `per-type` (default) or `single`. Identical in every stack of the workload. A record without this key is a v2.0.0 record and means `single`. |
+| `resource_group_name` | The resource group this stack **owns** (`per-type`) or **reads** (`single`), e.g. `rg-acme-webapp-net-dev` |
 | `working_directory` | Repo-relative stack root, e.g. `resources/networking` |
 | `tfvars` | Map of environment to tfvars path, e.g. `dev: envs/dev.tfvars` (relative to `working_directory`) |
 | `state_keys` | Map of environment to blob key, e.g. `dev: tfstate.webapp.networking.dev` |
@@ -215,6 +237,8 @@ subscription_id: "00000000-0000-0000-0000-000000000000"
 region_in_path: false
 region_in_name: false
 region_in_key: false
+resource_group_layout: per-type
+resource_group_name: rg-acme-webapp-net-dev
 working_directory: resources/networking
 tfvars:
   dev: envs/dev.tfvars
@@ -223,9 +247,9 @@ state_keys:
   dev: tfstate.webapp.networking.dev
   prod: tfstate.webapp.networking.prod
 module_sources:
+  - ../../modules/resource_group
   - ../../modules/virtual_network
-upstream_domains:
-  - resource-group
+upstream_domains: []
 ---
 # Stack decision record — human-readable notes optional below.
 ```

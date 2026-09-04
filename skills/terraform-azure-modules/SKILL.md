@@ -100,6 +100,8 @@ name = "kv-${var.organization_name}-${var.resource}-${var.environment}"
 
 If Azure rejects hyphens or the name length, see the character-set exceptions in [reference.md](reference.md). Still include organization, resource, and environment; do not revert to the superseded pattern.
 
+**Resource-group module only:** it takes an optional `name_segment` (string, default `""`) inserted before `{environment}`, so one module serves both resource group layouts — empty gives `rg-acme-webapp-dev`, `"kv"` gives `rg-acme-webapp-kv-dev`. No other module type takes a segment; a key vault inside `rg-acme-webapp-kv-dev` is still `kv-acme-webapp-dev`. See `references/resource-group-layout.md` in the `terraform-azure` skill.
+
 ### 6. Providers
 
 Pin:

@@ -14,6 +14,7 @@ REQUIRED_PATHS=(
   skills/terraform-azure/references/operating-process.md
   skills/terraform-azure/references/ai-conventions.md
   skills/terraform-azure/references/azure-connections.md
+  skills/terraform-azure/references/resource-group-layout.md
   skills/terraform-azure/templates/module/providers.tf.tmpl
   skills/terraform-azure/templates/stack/backend.tf.tmpl
   skills/terraform-azure/templates/stack/main.tf.tmpl

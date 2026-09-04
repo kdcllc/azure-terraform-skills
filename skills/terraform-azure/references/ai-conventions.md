@@ -2,7 +2,7 @@
 
 One-page layout and naming rules for agents and skills. Later skills must not re-export contradictions of these rules.
 
-Companion: [operating-process.md](operating-process.md). Module file templates live in this skill's `templates/module/` folder.
+Companions: [operating-process.md](operating-process.md) and [resource-group-layout.md](resource-group-layout.md). Module file templates live in this skill's `templates/module/` folder.
 
 ## Stacks: one domain per stack
 
@@ -36,20 +36,33 @@ terraform plan -var-file=envs/dev.tfvars
 
 Map every requested Azure resource onto exactly one domain folder before writing files. Tier is dependency order — a stack may read from lower tiers, never from equal or higher.
 
-| Tier | Domain folder | Typical Azure resources |
-| --- | --- | --- |
-| 1 | `resource-group` | `azurerm_resource_group` |
-| 2 | `networking` | virtual network, subnets, NSGs, private DNS zones, private endpoints |
-| 2 | `identity` | user-assigned managed identities, role assignments |
-| 2 | `observability` | Log Analytics workspace, Application Insights |
-| 3 | `key-vaults` | key vault, key vault secrets |
-| 3 | `container-registry` | container registry |
-| 3 | `storage` | storage accounts, blob containers |
-| 3 | `databases` | SQL, PostgreSQL, Cosmos DB |
-| 4 | `container-apps` | Container Apps environment, container apps |
-| 4 | `app-services` | service plans, web apps, function apps |
+| Tier | Domain folder | `rg_segment` | Typical Azure resources |
+| --- | --- | --- | --- |
+| 1 | `resource-group` | — (`single` layout only) | `azurerm_resource_group` |
+| 2 | `networking` | `net` | virtual network, subnets, NSGs, private DNS zones, private endpoints |
+| 2 | `identity` | `id` | user-assigned managed identities, role assignments |
+| 2 | `observability` | `obs` | Log Analytics workspace, Application Insights |
+| 3 | `key-vaults` | `kv` | key vault, key vault secrets |
+| 3 | `container-registry` | `acr` | container registry |
+| 3 | `storage` | `st` | storage accounts, blob containers |
+| 3 | `databases` | `db` | SQL, PostgreSQL, Cosmos DB |
+| 4 | `container-apps` | `aca` | Container Apps environment, container apps |
+| 4 | `app-services` | `app` | service plans, web apps, function apps |
 
-Operators may add rows. Agents may **not** invent a folder name when a catalog row already covers the resource, and may not merge two rows into one stack.
+Operators may add rows, and a new row must carry an `rg_segment`. Agents may **not** invent a folder name when a catalog row already covers the resource, and may not merge two rows into one stack.
+
+## Resource group layout
+
+Two layouts, chosen **once per workload** and identical in every stack of that workload:
+
+| Layout | Resource group | Owner |
+| --- | --- | --- |
+| **`per-type`** (default) | One RG per domain — `rg-{organization_name}-{resource}-{rg_segment}-{environment}` (`rg-acme-webapp-kv-dev`) | The domain's own stack, via `module "resource_group"` with `name_segment` set to the catalog `rg_segment`. No `resource-group` stack exists. |
+| **`single`** | One RG for the whole workload — `rg-{organization_name}-{resource}-{environment}` (`rg-acme-webapp-dev`) | The tier-1 `resource-group` stack; every other stack reads it with `data "azurerm_resource_group" "this"`. |
+
+A stack that creates its own resource group in `per-type` is still **one domain per stack** — the RG is that domain's container, not a second domain. Record the choice as `resource_group_layout` in `stack-decision.md`; a record without the key means `single`.
+
+Full rules, HCL for both layouts, and the migration stance: [resource-group-layout.md](resource-group-layout.md).
 
 ## Cross-stack references: data blocks only
 
@@ -58,14 +71,25 @@ A stack reads another domain's resources with an **azurerm `data` block**, never
 Because naming is deterministic (see below), a downstream stack reconstructs an upstream name from the **same three variables it already declares** — no extra inputs, no state coupling:
 
 ```hcl
-# resources/key-vaults/data.tf
-data "azurerm_resource_group" "this" {
-  name = "rg-${var.organization_name}-${var.resource}-${var.environment}"
+# resources/key-vaults/data.tf — per-type layout
+locals {
+  # upstream domain -> the resource group that domain owns (quote the keys)
+  upstream_rg = {
+    "observability" = "rg-${var.organization_name}-${var.resource}-obs-${var.environment}"
+  }
 }
 
 data "azurerm_log_analytics_workspace" "this" {
   name                = "log-${var.organization_name}-${var.resource}-${var.environment}"
-  resource_group_name = data.azurerm_resource_group.this.name
+  resource_group_name = local.upstream_rg["observability"]
+}
+```
+
+In the `single` layout the upstream RG is the workload's one RG, read directly:
+
+```hcl
+data "azurerm_resource_group" "this" {
+  name = "rg-${var.organization_name}-${var.resource}-${var.environment}"
 }
 ```
 
@@ -109,7 +133,9 @@ name = "rg-${var.organization_name}-${var.resource}-${var.environment}"
 
 Holding `resource` constant is what makes the data-block rule work: every stack can derive every other stack's names.
 
-Do not document a second naming pattern.
+**One exception:** the **resource group** in the `per-type` layout carries the domain's short `rg_segment` before `{environment}` — `rg-acme-webapp-kv-dev`. That is the only place a domain enters a resource name, and every other resource in that RG still uses the plain pattern.
+
+Do not document a second naming pattern. `rg_segment` and the optional `-{region}` suffix are segments of this one pattern, not alternatives to it.
 
 **Superseded (do not use):** `kv-${environment}-${resource}` / `kv-${var.environment}-${var.resource}` — missing `organization_name` and wrong segment order.
 
@@ -135,7 +161,7 @@ terraform {
 
 ## Create-time options
 
-When adding a **new stack**, ask before creating files: which domains are in scope; environments; Azure region (`location`); subscription (current `az account` or another subscription/tenant); and whether region appears in the tfvars filename, resource name, state key, several, or none. **`location` is always** a stack variable and is always passed into modules.
+When adding a **new stack**, ask before creating files: which domains are in scope; environments; Azure region (`location`); subscription (current `az account` or another subscription/tenant); whether region appears in the tfvars filename, resource name, state key, several, or none; and the **resource group layout** (`per-type` default, or `single`). **`location` is always** a stack variable and is always passed into modules.
 
 Full menu, tooling, region rules, provider registration, and `stack-decision.md` keys: [operating-process.md](operating-process.md).
 
@@ -149,3 +175,4 @@ Full menu, tooling, region rules, provider registration, and `stack-decision.md`
 6. Names → `{resource-type}-{organization_name}-{resource}-{environment}`, `resource` = workload.
 7. State key → `tfstate.{resource}.{domain}.{environment}`.
 8. Backend → empty `backend "azurerm" {}`.
+9. Resource group layout → `per-type` unless the operator picks `single`; the same layout in every stack of the workload, recorded as `resource_group_layout`.

@@ -46,7 +46,7 @@ Do not use `resources/environments/<env>/<resource>/` (superseded) or `infra/res
 
 **One pipeline (or one caller job) per domain stack.** Each domain has its own working directory and its own state key, so they cannot share a job. Scope trigger paths to `resources/<domain>/**` so an unrelated domain's change does not replan everything.
 
-**Plan order follows dependency tier.** A `data` block in a higher-tier stack fails until the lower-tier stack has been applied. Order jobs `resource-group` → tier 2 → tier 3 → tier 4, and treat a missing-data failure in an unapplied environment as expected, not as a pipeline defect.
+**Plan order follows dependency tier.** A `data` block in a higher-tier stack fails until the lower-tier stack has been applied. Order jobs tier 1 → tier 2 → tier 3 → tier 4, and treat a missing-data failure in an unapplied environment as expected, not as a pipeline defect. In the `single` resource group layout the `resource-group` stack is tier 1 and runs first; the default `per-type` layout has no such job, because each stack creates its own resource group.
 
 Point `working_directory` / `workingDirectory` at `resources/<domain>`, and the tfvars parameter at `envs/<env>.tfvars` (relative to the working directory). Keep `backend.tf` empty so the pipeline injects storage settings:
 
@@ -105,7 +105,7 @@ The confirmation input is the only gate wired by default. For a human approval s
 ```
 .github/workflows/
   tf-deploy-base.yaml            reusable runner (workflow_call only)
-  terraform-resource-group.yaml  tier 1
+  terraform-resource-group.yaml  tier 1 (single RG layout only)
   terraform-networking.yaml      tier 2
   terraform-key-vaults.yaml      one file per domain, named for the domain
   terraform-container-apps.yaml

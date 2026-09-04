@@ -14,7 +14,7 @@ metadata:
 
 # Terraform Azure (`terraform-azure`)
 
-Human operators and agents share one contract: [references/operating-process.md](references/operating-process.md). Layout freeze: [references/ai-conventions.md](references/ai-conventions.md).
+Human operators and agents share one contract: [references/operating-process.md](references/operating-process.md). Layout freeze: [references/ai-conventions.md](references/ai-conventions.md). Resource group layout: [references/resource-group-layout.md](references/resource-group-layout.md).
 
 **Workstation tools:** Azure CLI (`az`), Terraform **1.15.8**, Git, bash or PowerShell 7. Optional: `gh`, `az devops`, `glab`.
 
@@ -115,7 +115,7 @@ cd modules/<name> && terraform init -backend=false && terraform validate
 
 ### Rule 0 — decompose before you write
 
-An operator asking for "a resource group, VNet, container apps, ACR, key vault, storage and Log Analytics" is asking for **seven stacks, not one file**. Before creating anything:
+An operator asking for "a resource group, VNet, container apps, ACR, key vault, storage and Log Analytics" is asking for **six or seven stacks (by layout), not one file**. Before creating anything:
 
 1. Map every requested Azure resource onto exactly one row of the **domain catalog** below.
 2. Create one stack folder per distinct domain.
@@ -127,25 +127,24 @@ An operator asking for "a resource group, VNet, container apps, ACR, key vault, 
 
 Tier is dependency order — a stack may read from **lower** tiers only.
 
-| Tier | Domain folder | Typical Azure resources |
-| --- | --- | --- |
-| 1 | `resource-group` | resource group |
-| 2 | `networking` | virtual network, subnets, NSGs, private DNS zones, private endpoints |
-| 2 | `identity` | user-assigned managed identities, role assignments |
-| 2 | `observability` | Log Analytics workspace, Application Insights |
-| 3 | `key-vaults` | key vault, key vault secrets |
-| 3 | `container-registry` | container registry |
-| 3 | `storage` | storage accounts, blob containers |
-| 3 | `databases` | SQL, PostgreSQL, Cosmos DB |
-| 4 | `container-apps` | Container Apps environment, container apps |
-| 4 | `app-services` | service plans, web apps, function apps |
+| Tier | Domain folder | `rg_segment` | Typical Azure resources |
+| --- | --- | --- | --- |
+| 1 | `resource-group` | — (`single` only) | resource group |
+| 2 | `networking` | `net` | virtual network, subnets, NSGs, private DNS zones, private endpoints |
+| 2 | `identity` | `id` | user-assigned managed identities, role assignments |
+| 2 | `observability` | `obs` | Log Analytics workspace, Application Insights |
+| 3 | `key-vaults` | `kv` | key vault, key vault secrets |
+| 3 | `container-registry` | `acr` | container registry |
+| 3 | `storage` | `st` | storage accounts, blob containers |
+| 3 | `databases` | `db` | SQL, PostgreSQL, Cosmos DB |
+| 4 | `container-apps` | `aca` | Container Apps environment, container apps |
+| 4 | `app-services` | `app` | service plans, web apps, function apps |
 
-Operators may add rows. Do **not** invent a folder name when a row already covers the resource, and do **not** merge two rows into one stack.
+Operators may add rows, and a new row needs an `rg_segment`. Do **not** invent a folder name when a row already covers the resource, and do **not** merge two rows into one stack.
 
-Worked example — the request above becomes:
+Worked example — the request above in the default `per-type` layout becomes six stacks, each owning `rg-acme-webapp-<rg_segment>-dev`:
 
 ```
-resources/resource-group/       (tier 1)
 resources/networking/           (tier 2)
 resources/observability/        (tier 2)
 resources/key-vaults/           (tier 3)
@@ -153,6 +152,8 @@ resources/container-registry/   (tier 3)
 resources/storage/              (tier 3)
 resources/container-apps/       (tier 4)
 ```
+
+The `single` layout adds `resources/resource-group/` (tier 1), which owns the workload's one RG.
 
 ### Rule 1 — directory layout
 
@@ -182,15 +183,28 @@ Working directory is `resources/<domain>/` for every environment.
 A stack reads another domain through an azurerm `data` block. Because naming is deterministic and `var.resource` is identical across a workload's stacks, the downstream stack **reconstructs** the upstream name from variables it already has:
 
 ```hcl
-# resources/key-vaults/data.tf
-data "azurerm_resource_group" "this" {
-  name = "rg-${var.organization_name}-${var.resource}-${var.environment}"
+# resources/key-vaults/data.tf — per-type: read the UPSTREAM domain's RG
+locals {
+  upstream_rg = {
+    "observability" = "rg-${var.organization_name}-${var.resource}-obs-${var.environment}"
+  }
 }
+
+# single: data "azurerm_resource_group" "this" { name = "rg-${var.organization_name}-${var.resource}-${var.environment}" }
 ```
 
 **Forbidden:** `terraform_remote_state`, cross-stack module outputs, and upstream IDs hardcoded into tfvars. If azurerm publishes no data source for a type, its dependents belong in the **same** stack as that resource — that is the only merge this skill allows.
 
 Stack `outputs.tf` is optional, for humans and CI logs only — never a cross-stack contract.
+
+### Resource group layout
+
+| Layout | Resource group | Owner |
+| --- | --- | --- |
+| **`per-type`** (default) | One per domain — `rg-acme-webapp-kv-dev` | The domain's own stack, `module "resource_group"` with `name_segment` = catalog `rg_segment`. No `resource-group` stack. |
+| **`single`** | One per workload — `rg-acme-webapp-dev` | Tier-1 `resource-group` stack; others read it with a `data` block. |
+
+Chosen **once per workload** and identical in every stack of that workload. A stack owning its RG in `per-type` is still one domain. Full rules and HCL: [references/resource-group-layout.md](references/resource-group-layout.md).
 
 ### Ask at create time (required)
 
@@ -201,6 +215,7 @@ Before writing files, ask:
 3. **Azure region (location)** — e.g. `eastus`, `westeurope`.
 4. **Subscription** — current `az account show` subscription, or another subscription ID.
 5. **Region in layout** — whether `<region>` appears in the **tfvars filename**, the **resource name**, the **state key**, several, or none.
+6. **Resource group layout** — `per-type` (**default**, one RG per domain) or `single` (one RG per workload). Same answer for every stack of the workload.
 
 **location is always** a stack variable in `variables.tf` and **is always** passed into every `module` block, even when region appears nowhere else. Modules never infer region from path alone.
 
@@ -212,6 +227,7 @@ Region-in-path affects only the tfvars filename (`resources/<domain>/envs/<env>.
 
 - Correct: `kv-acme-webapp-dev`, `vnet-acme-webapp-dev`
 - Wrong: `kv-acme-key-vaults-dev`
+- Only exception — the RG in the `per-type` layout: `rg-acme-webapp-kv-dev`
 
 ### State keys
 
@@ -228,7 +244,7 @@ Copy and adapt from [templates/stack/](templates/stack/), once per domain:
 | File | Template |
 | --- | --- |
 | `main.tf` | `templates/stack/main.tf.tmpl` — one domain's modules only |
-| `data.tf` | `templates/stack/data.tf.tmpl` — omit for tier 1 (`resource-group`) |
+| `data.tf` | `templates/stack/data.tf.tmpl` — omit when `upstream_domains` is empty |
 | `variables.tf` | `templates/stack/variables.tf.tmpl` — **must** declare `location` |
 | `providers.tf` | `templates/stack/providers.tf.tmpl` — sets `resource_provider_registrations = "legacy"` |
 | `backend.tf` | `templates/stack/backend.tf.tmpl` — empty `backend "azurerm" {}` |
@@ -236,7 +252,7 @@ Copy and adapt from [templates/stack/](templates/stack/), once per domain:
 
 ### Stack decision record
 
-Write **`stack-decision.md`** in each domain stack using [templates/stack-decision.md](templates/stack-decision.md). Required keys: `domain`, `resource`, `environments`, `region`, `location`, `subscription_id`, `region_in_path`, `region_in_name`, `region_in_key`, `working_directory`, `tfvars`, `state_keys`, `module_sources`, `upstream_domains`.
+Write **`stack-decision.md`** in each domain stack using [templates/stack-decision.md](templates/stack-decision.md). Required keys: `domain`, `resource`, `environments`, `region`, `location`, `subscription_id`, `region_in_path`, `region_in_name`, `region_in_key`, `resource_group_layout`, `resource_group_name`, `working_directory`, `tfvars`, `state_keys`, `module_sources`, `upstream_domains`.
 
 `domain` must be a single catalog row — two domains in one record means the stack needs splitting. Every `upstream_domains` entry must have a matching `data` block in `data.tf`.
 
