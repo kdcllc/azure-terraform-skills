@@ -27,6 +27,10 @@ especially its **Upgrade notes**.
 - Decision-record keys **`resource_group_layout`** and **`resource_group_name`**.
 - `check-stack-conventions.sh` guards for the new reference, the catalog segment, the decision
   keys, and the commented-out single-layout data block.
+- `docs/using-the-pack.md` — operator guide covering the module/stack/domain model, the resource
+  group layout decision, version pinning (including branch previews), and how to update both the
+  installed skills and a consumer repo. Repo-internal docs ship nothing to consumers, so this
+  carries no version of its own.
 
 ### Changed
 

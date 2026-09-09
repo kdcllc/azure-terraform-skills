@@ -24,6 +24,14 @@ The Skills CLI records the ref in its lockfile and `npx skills update`
 re-downloads from that ref, so pinned installs stay on their tag until the
 consumer deliberately re-adds with a newer one.
 
+To check what is installed, read `metadata.version` out of any installed
+`SKILL.md`, or run `npx skills ls` (add `-g` for user scope).
+
+A **branch** install (`#<branch>`) carries whatever version was last released,
+so frontmatter cannot signal that you are on unreleased code — read the
+branch's `## [Unreleased]` changelog section instead. Operator-facing guidance
+on pinning and updating: [docs/using-the-pack.md](docs/using-the-pack.md).
+
 ## What bumps what
 
 | Bump | When (any of) |

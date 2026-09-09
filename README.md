@@ -83,6 +83,8 @@ scripts/check-skill-pack.sh   # pack validator (versions, changelog, pins)
 scripts/release.sh            # bump + validate + commit + tag vX.Y.Z
 CHANGELOG.md                  # per-release notes incl. upgrade notes
 VERSIONING.md                 # semver policy and release checklist
+docs/using-the-pack.md        # operator guide: layouts, versions, updating
+docs/deep-dive.md             # end-to-end consumer walkthroughs
 .github/workflows/            # CI validation and tag-push releases
 _unpacked/                    # historical source material; not installed
 ```
@@ -120,6 +122,13 @@ Install the latest (default-branch tip — moves without notice):
 npx skills add kdcllc/azure-terraform-skills
 ```
 
+Preview an unreleased branch (frontmatter still shows the last released
+version, so track the branch yourself):
+
+```bash
+npx skills add kdcllc/azure-terraform-skills#<branch>
+```
+
 Upgrading: read the target version's [CHANGELOG](CHANGELOG.md) entry —
 especially **Upgrade notes** — then re-add with the new tag:
 
@@ -131,10 +140,13 @@ Note the ref goes after `#`, not `@` (`@name` selects a single skill, not a
 version). `npx skills update` re-downloads from the ref you pinned, so pinned
 installs stay on their tag until you deliberately re-add with a newer one.
 
+## Documentation
+
+- [docs/using-the-pack.md](docs/using-the-pack.md) — operator guide: the module/stack/domain model, the **resource group layout** choice (`per-type` default vs `single`), version pinning, and how to update.
+- [docs/deep-dive.md](docs/deep-dive.md) — end-to-end consumer walkthroughs: minimal resource-group stack, Microsoft Foundry + Container Apps chat, then upgrading existing modules.
+- [VERSIONING.md](VERSIONING.md) — what bumps MAJOR/MINOR/PATCH and the release checklist.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
 
-## Deep dive
-
-End-to-end consumer walkthroughs: [docs/deep-dive.md](docs/deep-dive.md) (minimal resource-group stack, Microsoft Foundry + Container Apps chat, then upgrading existing modules).
