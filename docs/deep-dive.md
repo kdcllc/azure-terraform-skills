@@ -78,7 +78,7 @@ Store client / tenant / subscription IDs in GitHub Environment secrets. Follow t
 
 ## A4. Menu 2 — new stack
 
-Ask domains, environments (`dev`), location `eastus`, workload `webapp`. Only one Azure resource is in scope, so it maps to one domain-catalog row — `resource-group`, tier 1:
+Ask domains, environments (`dev`), location `eastus`, workload `webapp`, and the resource group layout. This scenario answers **`single`** — the only Azure resource in scope *is* the resource group, so it maps to one domain-catalog row, `resource-group`, tier 1:
 
 ```
 resources/resource-group/
@@ -93,9 +93,11 @@ resources/resource-group/
 
 No `data.tf` — tier 1 has no upstream domain to read.
 
-Module source is relative and fixed: `source = "../../modules/resource_group"`. **`location` is always** on the stack and in every module block. State key is `tfstate.webapp.resource-group.dev`.
+Module source is relative and fixed: `source = "../../modules/resource_group"`. **`location` is always** on the stack and in every module block. State key is `tfstate.webapp.resource-group.dev`. `stack-decision.md` records `resource_group_layout: single` and `resource_group_name: rg-acme-webapp-dev`; every later stack for `webapp` must repeat that layout.
 
 Adding a VNet later does **not** mean editing this `main.tf`. It means creating `resources/networking/` with its own `data.tf` that looks the resource group up by name.
+
+Had the operator taken the default **`per-type`** layout instead, there would be no `resources/resource-group/` at all: each domain stack would create its own `rg-acme-webapp-<rg_segment>-dev`. See `references/resource-group-layout.md` in the skill.
 
 ## A5. Menu 3 — pipeline
 
@@ -144,29 +146,31 @@ Each module gets `providers.tf` with azurerm `>= 5.0.0, < 6.0.0`. Naming uses `o
 
 ## B2. One stack per domain
 
-Those nine module types map onto **six** domain-catalog rows, so this is six stacks — not one `chat` folder:
+This scenario takes the default **`per-type`** resource group layout, so those nine module types map onto **five** domain-catalog rows — five stacks, not one `chat` folder, and no `resource-group` stack. Each stack creates its own RG with `module "resource_group"` and its catalog `rg_segment`:
 
-| Tier | Stack | Modules it owns |
-| --- | --- | --- |
-| 1 | `resources/resource-group/` | `resource_group` |
-| 2 | `resources/identity/` | `user_assigned_identity`, role assignments |
-| 2 | `resources/observability/` | `log_analytics_workspace` |
-| 3 | `resources/container-registry/` | `container_registry` |
-| 3 | `resources/ai-foundry/` | Foundry account, project, model deployment (new catalog row) |
-| 4 | `resources/container-apps/` | `container_app_environment`, `container_app` |
+| Tier | Stack | Owns RG | Modules it owns |
+| --- | --- | --- | --- |
+| 2 | `resources/identity/` | `rg-acme-chat-id-dev` | `resource_group`, `user_assigned_identity`, role assignments |
+| 2 | `resources/observability/` | `rg-acme-chat-obs-dev` | `resource_group`, `log_analytics_workspace` |
+| 3 | `resources/container-registry/` | `rg-acme-chat-acr-dev` | `resource_group`, `container_registry` |
+| 3 | `resources/ai-foundry/` | `rg-acme-chat-aif-dev` | `resource_group`, Foundry account, project, model deployment (new catalog row) |
+| 4 | `resources/container-apps/` | `rg-acme-chat-aca-dev` | `resource_group`, `container_app_environment`, `container_app` |
 
-`ai-foundry` is not in the shipped catalog — add it as a row rather than folding Foundry into `container-apps`.
+`ai-foundry` is not in the shipped catalog — add it as a row, with its own `rg_segment` (`aif`), rather than folding Foundry into `container-apps`.
 
-Every stack sets `resource = "chat"` in its tfvars, so each derives the others' names. `container-apps/data.tf` reads its upstreams:
+Every stack sets `resource = "chat"` in its tfvars, so each derives the others' names — including which RG an upstream resource sits in. `container-apps/data.tf` reads its upstreams:
 
 ```hcl
-data "azurerm_resource_group" "this" {
-  name = "rg-${var.organization_name}-${var.resource}-${var.environment}"
+locals {
+  # keys are domain folder names — quote them, hyphens are not bare identifiers
+  upstream_rg = {
+    "container-registry" = "rg-${var.organization_name}-${var.resource}-acr-${var.environment}"
+  }
 }
 
 data "azurerm_container_registry" "this" {
   name                = "cr${var.organization_name}${var.resource}${var.environment}"
-  resource_group_name = data.azurerm_resource_group.this.name
+  resource_group_name = local.upstream_rg["container-registry"]
 }
 ```
 

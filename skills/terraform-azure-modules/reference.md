@@ -192,6 +192,18 @@ resource "azurerm_resource_group" "this" {
 
 Replace `azurerm_resource_group` and `rg` with the resource type and abbreviation from the table.
 
+The **resource-group module** adds an optional `name_segment` (default `""`) so one module serves both resource group layouts — empty for the single layout, the domain's `rg_segment` for the per-type layout:
+
+```hcl
+resource "azurerm_resource_group" "this" {
+  name     = join("-", compact(["rg", var.organization_name, var.resource, var.name_segment, var.environment]))
+  location = var.location
+  tags     = var.tags
+}
+```
+
+No other module type takes a segment.
+
 ### `output.tf`
 
 ```hcl

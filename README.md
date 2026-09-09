@@ -35,18 +35,22 @@ Each skill folder is self-contained (`SKILL.md` plus `templates/`, `scripts/`, `
 - Stacks: `resources/<domain>/` — **one stack per domain**, `.tf` written once, per-environment tfvars in `envs/<env>.tfvars`
 - Pipelines: `.github/workflows/`, `pipelines/azure_dev_ops/`, or `.gitlab/pipelines/`
 
-A request for "a resource group, VNet, container apps, ACR, key vault, storage and Log Analytics" becomes **seven stacks**, not one `main.tf`:
+A request for "a resource group, VNet, container apps, ACR, key vault, storage and Log Analytics" becomes **six stacks**, not one `main.tf`:
 
 ```
-resources/resource-group/     resources/key-vaults/
 resources/networking/         resources/container-registry/
 resources/observability/      resources/storage/
-                              resources/container-apps/
+resources/key-vaults/         resources/container-apps/
 ```
+
+The operator picks the **resource group layout** when the first stack is created:
+
+- **`per-type`** (default) — one RG per domain, `rg-acme-webapp-kv-dev`, created by that domain's own stack. Six stacks above.
+- **`single`** — one RG for the workload, `rg-acme-webapp-dev`, created by a tier-1 `resources/resource-group/` stack that the others read. Seven stacks.
 
 Stacks read each other with azurerm **`data` blocks** only — never `terraform_remote_state`, never cross-stack module outputs. Because `{resource}` is the workload and stays constant across a workload's stacks, any stack can reconstruct another's names from variables it already has.
 
-Naming: `{resource-type}-{organization_name}-{resource}-{environment}` (example: `rg-acme-webapp-dev`). State key: `tfstate.{resource}.{domain}.{environment}`. Provider file is **`providers.tf`**. Stacks use an empty `backend "azurerm" {}`; pipelines inject state settings.
+Naming: `{resource-type}-{organization_name}-{resource}-{environment}` (example: `rg-acme-webapp-dev`; in the `per-type` layout the resource group alone inserts the domain segment, `rg-acme-webapp-kv-dev`). State key: `tfstate.{resource}.{domain}.{environment}`. Provider file is **`providers.tf`**. Stacks use an empty `backend "azurerm" {}`; pipelines inject state settings.
 
 Microsoft [Azure Developer CLI](https://learn.microsoft.com/azure/developer/azure-developer-cli/use-terraform-for-azd) templates and [azure-skills](https://github.com/microsoft/azure-skills) use `infra/` (often with `azd up`). This pack does **not**. Do not rewrite an existing `infra/` tree into `modules/` / `resources/<domain>/` unless the operator asks. Rejected aliases: `infra/resources/`, `resources/environments/<env>/<resource>/` (superseded), and any layout that duplicates `.tf` per environment.
 
@@ -79,6 +83,8 @@ scripts/check-skill-pack.sh   # pack validator (versions, changelog, pins)
 scripts/release.sh            # bump + validate + commit + tag vX.Y.Z
 CHANGELOG.md                  # per-release notes incl. upgrade notes
 VERSIONING.md                 # semver policy and release checklist
+docs/using-the-pack.md        # operator guide: layouts, versions, updating
+docs/deep-dive.md             # end-to-end consumer walkthroughs
 .github/workflows/            # CI validation and tag-push releases
 _unpacked/                    # historical source material; not installed
 ```
@@ -116,6 +122,13 @@ Install the latest (default-branch tip — moves without notice):
 npx skills add kdcllc/azure-terraform-skills
 ```
 
+Preview an unreleased branch (frontmatter still shows the last released
+version, so track the branch yourself):
+
+```bash
+npx skills add kdcllc/azure-terraform-skills#<branch>
+```
+
 Upgrading: read the target version's [CHANGELOG](CHANGELOG.md) entry —
 especially **Upgrade notes** — then re-add with the new tag:
 
@@ -127,10 +140,13 @@ Note the ref goes after `#`, not `@` (`@name` selects a single skill, not a
 version). `npx skills update` re-downloads from the ref you pinned, so pinned
 installs stay on their tag until you deliberately re-add with a newer one.
 
+## Documentation
+
+- [docs/using-the-pack.md](docs/using-the-pack.md) — operator guide: the module/stack/domain model, the **resource group layout** choice (`per-type` default vs `single`), version pinning, and how to update.
+- [docs/deep-dive.md](docs/deep-dive.md) — end-to-end consumer walkthroughs: minimal resource-group stack, Microsoft Foundry + Container Apps chat, then upgrading existing modules.
+- [VERSIONING.md](VERSIONING.md) — what bumps MAJOR/MINOR/PATCH and the release checklist.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
 
-## Deep dive
-
-End-to-end consumer walkthroughs: [docs/deep-dive.md](docs/deep-dive.md) (minimal resource-group stack, Microsoft Foundry + Container Apps chat, then upgrading existing modules).

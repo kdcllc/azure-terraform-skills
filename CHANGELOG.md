@@ -8,6 +8,60 @@ especially its **Upgrade notes**.
 
 ## [Unreleased]
 
+### Added
+
+- **Operator-selectable resource group layout.** Create-time question 6 asks how a workload's
+  resources are grouped: **`per-type`** (default — one resource group per domain, e.g. all key
+  vaults in `rg-acme-webapp-kv-dev`, created by that domain's own stack) or **`single`** (one
+  resource group for the whole workload, `rg-acme-webapp-dev`, created by the tier-1
+  `resource-group` stack). The layout is chosen once per workload and must be identical in every
+  stack of that workload.
+- `skills/terraform-azure/references/resource-group-layout.md` — both layouts, `main.tf` and
+  `data.tf` HCL for each, naming, decision-record keys, pipeline ordering, and the no-conversion
+  stance.
+- **`rg_segment` column on the domain catalog** — `net`, `id`, `obs`, `kv`, `acr`, `st`, `db`,
+  `aca`, `app`. A new catalog row must carry one. This is what makes a per-type RG name
+  reconstructible from a downstream stack.
+- **`name_segment`** input (string, default `""`) on the resource-group library module, so one
+  module serves both layouts.
+- Decision-record keys **`resource_group_layout`** and **`resource_group_name`**.
+- `check-stack-conventions.sh` guards for the new reference, the catalog segment, the decision
+  keys, and the commented-out single-layout data block.
+- `docs/using-the-pack.md` — operator guide covering the module/stack/domain model, the resource
+  group layout decision, version pinning (including branch previews), and how to update both the
+  installed skills and a consumer repo. Repo-internal docs ship nothing to consumers, so this
+  carries no version of its own.
+
+### Changed
+
+- Stack templates now default to `per-type`: `stack/main.tf.tmpl` opens with a `resource_group`
+  module and wires siblings to `module.resource_group.resource_group.name`;
+  `stack/data.tf.tmpl` ships a `local.upstream_rg` map and keeps the single-layout
+  `azurerm_resource_group` data block commented.
+- Resource naming gains one documented exception: in `per-type`, the resource group alone carries
+  the domain's `rg_segment` before `{environment}`. Every other resource keeps
+  `{abbr}-{organization_name}-{resource}-{environment}` — `kv-acme-webapp-dev` inside
+  `rg-acme-webapp-kv-dev`. `rg_segment` and the optional `-{region}` suffix are segments of the
+  one canonical pattern, not a second pattern.
+- `data.tf` is omitted when `upstream_domains` is empty, rather than "for tier 1" — in `per-type`
+  a tier-2 stack can have no upstream.
+- Pipeline plan order is stated by tier. The `resource-group` job exists in the `single` layout
+  only.
+
+### Upgrade notes
+
+- **Existing repos are `single` and nothing moves.** Add `resource_group_layout: single` and
+  `resource_group_name:` to each existing `stack-decision.md`. A record without the key is read as
+  `single`.
+- **New workloads default to `per-type`.** Ask before scaffolding; do not assume the old shape.
+- **Never convert a live workload between layouts with the skill.** Conversion moves Azure
+  resources between resource groups and re-keys nothing in state cleanly. Hand it to a
+  human-reviewed, plan-only resource move.
+- Existing `resource_group` modules keep working once `name_segment` is added with its `""`
+  default. Modules copied before this release have no such variable, so a `per-type` stack
+  passing `name_segment` fails until the variable is added.
+- Re-copy `templates/stack/main.tf.tmpl` and `data.tf.tmpl` only for **new** stacks.
+
 ## [2.0.0] - 2026-09-03
 
 Two bodies of work: the **stack decomposition contract** (breaking) and a
