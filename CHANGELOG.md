@@ -8,6 +8,8 @@ especially its **Upgrade notes**.
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-09-15
+
 ### Added
 
 - **Operator-selectable resource group layout.** Create-time question 6 asks how a workload's
